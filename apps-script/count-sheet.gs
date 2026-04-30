@@ -121,16 +121,17 @@ function entryCategory(msgname) {
 // ── Map sheet row name → category ─────────────────────
 function rowCategory(rowName) {
   const n = (rowName || '').toLowerCase();
-  if (n.includes('combine absent'))     return 'combine_absent';
-  if (n.includes('absent') && !n.includes('combine')) return 'yoga_absent';
-  if (n.includes('saturday combine'))   return 'saturday_combine';
-  if (n.includes('night message'))      return 'night_present';
-  if (n.includes('saturday reminder'))  return 'saturday_reminder';
-  if (n.includes('sunday intension'))   return 'sunday_intension';
-  if (n.includes('milestone'))          return 'milestone';
-  if (n.includes('attendance'))         return 'attendance';
-  if (n.includes('ds-class') || n.includes('ds class')) return 'ds_class';
-  if (n.includes('class message') || n.includes('routine')) return 'yoga_class';
+  if (n.includes('night absent'))                                     return 'combine_absent';
+  if (n.includes('saturday absent') || n.includes('saturday combine'))return 'saturday_combine';
+  if (n.includes('night present') || n.includes('night message'))     return 'night_present';
+  if (n.includes('saturday present') || n.includes('saturday reminder')) return 'saturday_reminder';
+  if (n.includes('sunday intension'))                                 return 'sunday_intension';
+  if (n.includes('absent'))                                           return 'yoga_absent';
+  if (n.includes('milestone'))                                        return 'milestone';
+  if (n.includes('attendance'))                                       return 'attendance';
+  if (n.includes('ds-class') || n.includes('ds class'))               return 'ds_class';
+  // "Yoga - Reminder Message" = class message (renamed in sheet)
+  if (n.includes('reminder message') || n.includes('class message') || n.includes('routine')) return 'yoga_class';
   return 'other';
 }
 
