@@ -436,10 +436,11 @@ function buildPaidMessage() {
 // ── DETECT PAID SUB-TYPE FROM CAMPAIGN NAME ───
 function detectSubtype(campaignName, tpl) {
   if (tpl === 'renewal_minus' || tpl === 'renewal_plus') return 'renewal';
-  if (tpl === 'pause') return 'pause/unpause';
-  if (tpl === 'attendance') return 'attendance';
-  if (tpl === 'reminder')   return 'reminder';
+  if (tpl === 'pause')        return 'pause/unpause';
+  if (tpl === 'attendance')   return 'attendance';
+  if (tpl === 'reminder')     return 'reminder';
   if (tpl === 'night' || tpl === 'night_hindi') return 'night';
+  if (tpl === 'simple')       return 'strong';
   const n = (campaignName || '').toLowerCase();
   if (n.includes('reminder') && !n.includes('night'))                     return 'reminder';
   if (n.includes('_ye') || n.includes('ye_') || n.includes('yoga'))      return 'yoga';
