@@ -42,13 +42,19 @@ function doPost(e) {
     });
 
     let updated = 0;
+    const debugInfo = [];
     Object.entries(cellTotals).forEach(([key, total]) => {
       const [r, c] = key.split('_').map(Number);
       sheet.getRange(r, c).setValue(total);
       updated++;
+      debugInfo.push({ row: r, col: c, sent: total,
+        rowName: sheet.getRange(r, 1).getValue(),
+        rowTime: sheet.getRange(r, 2).getValue(),
+        colHeader: sheet.getRange(HEADER_ROW, c).getValue() + ''
+      });
     });
 
-    return jsonResponse({ ok: true, updated });
+    return jsonResponse({ ok: true, updated, debug: debugInfo });
 
   } catch (err) {
     return jsonResponse({ ok: false, error: err.message });

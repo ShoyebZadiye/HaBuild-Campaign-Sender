@@ -701,10 +701,14 @@ async function postToSheet(entries, date, fallbackTime) {
       body:     JSON.stringify({ entries: payload })
     });
     const result = await resp.json().catch(() => null);
-    if (result && result.updated > 0)
-      showFeedback(`✅ Sheet updated! (${result.updated} row${result.updated > 1 ? 's' : ''})`, 'success');
-    else if (result && result.updated === 0)
+    if (result && result.updated > 0) {
+      const d = result.debug?.[0];
+      const info = d ? ` → R${d.row} C${d.col} | ${d.rowName} | ${d.rowTime} | ${d.colHeader}` : '';
+      showFeedback(`✅ Sheet updated!${info}`, 'success');
+      console.log('[Sheet]', JSON.stringify(result.debug));
+    } else if (result && result.updated === 0) {
       showFeedback('⚠️ Sheet: row/date not found', 'error');
+    }
   } catch(_) {
     // fire-and-forget — silently ignore errors
   }
