@@ -62,19 +62,22 @@ function doPost(e) {
 }
 
 // ── Find date column (1-based) ─────────────────────────
+// Searches RIGHT-TO-LEFT because today's date is always near the end
 // Handles both DD/MM/YYYY and MM/DD/YYYY text + Date objects
 function findDateCol(header, dateStr) {
   if (!dateStr) return null;
   const [y, m, d] = dateStr.split('-');
   const targetDDMM = `${d}/${m}/${y}`;  // "30/04/2026"
   const targetMMDD = `${m}/${d}/${y}`;  // "04/30/2026"
+  const targetDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
 
-  for (let c = DATE_COL_FROM - 1; c < header.length; c++) {
+  for (let c = header.length - 1; c >= DATE_COL_FROM - 1; c--) {
     const cell = header[c];
     if (!cell) continue;
     if (cell instanceof Date) {
-      const s = pad(cell.getDate()) + '/' + pad(cell.getMonth() + 1) + '/' + cell.getFullYear();
-      if (s === targetDDMM) return c + 1;
+      if (cell.getFullYear() === targetDate.getFullYear() &&
+          cell.getMonth()    === targetDate.getMonth()    &&
+          cell.getDate()     === targetDate.getDate())    return c + 1;
     } else {
       const s = String(cell).trim();
       if (s === targetDDMM || s === targetMMDD) return c + 1;
