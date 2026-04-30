@@ -694,12 +694,17 @@ async function postToSheet(entries, date, fallbackTime) {
 
     if (!payload.length) return;
 
-    await fetch(url, {
+    const resp = await fetch(url, {
       method:   'POST',
       redirect: 'follow',
       headers:  { 'Content-Type': 'text/plain' },
       body:     JSON.stringify({ entries: payload })
     });
+    const result = await resp.json().catch(() => null);
+    if (result && result.updated > 0)
+      showFeedback(`✅ Sheet updated! (${result.updated} row${result.updated > 1 ? 's' : ''})`, 'success');
+    else if (result && result.updated === 0)
+      showFeedback('⚠️ Sheet: row/date not found', 'error');
   } catch(_) {
     // fire-and-forget — silently ignore errors
   }

@@ -125,16 +125,22 @@ function rowCategory(rowName) {
   return 'other';
 }
 
+// ── Normalize time: remove leading zero, lowercase ────
+// "05:20 am" → "5:20 am",  "4:20 pm" → "4:20 pm"
+function normTime(t) {
+  return String(t || '').trim().toLowerCase().replace(/^0(\d:)/, '$1');
+}
+
 // ── Find matching sheet row (1-based row number) ───────
 function findRow(dataVals, msgname, time12) {
   const cat     = entryCategory(msgname);
-  const timeLow = time12 ? time12.toLowerCase() : null;
+  const timeLow = time12 ? normTime(time12) : null;
 
   // Pass 1: exact (time + category)
   if (timeLow) {
     for (let i = 0; i < dataVals.length; i++) {
       const name = String(dataVals[i][0] || '').trim();
-      const time = String(dataVals[i][1] || '').trim().toLowerCase();
+      const time = normTime(dataVals[i][1]);
       if (!name || time !== timeLow) continue;
       if (rowCategory(name) === cat) return DATA_START + i;
     }
@@ -145,7 +151,7 @@ function findRow(dataVals, msgname, time12) {
     const hits = [];
     for (let i = 0; i < dataVals.length; i++) {
       const name = String(dataVals[i][0] || '').trim();
-      const time = String(dataVals[i][1] || '').trim().toLowerCase();
+      const time = normTime(dataVals[i][1]);
       if (!name || time !== timeLow) continue;
       hits.push(DATA_START + i);
     }
