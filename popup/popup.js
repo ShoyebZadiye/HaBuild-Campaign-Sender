@@ -673,7 +673,7 @@ async function copyAndSave() {
     showFeedback(`✅ Copied & Saved! (${n} record${n > 1 ? 's' : ''})`, 'success');
 
     // Fire-and-forget to Google Sheet
-    postToSheet(entries, today);
+    postToSheet(entries, today, time);
   } catch(e) {
     showFeedback('❌ Save error: ' + e.message, 'error');
   }
@@ -682,7 +682,7 @@ async function copyAndSave() {
 // ══════════════════════════════════════════════
 // GOOGLE SHEET SYNC (fire-and-forget)
 // ══════════════════════════════════════════════
-async function postToSheet(entries, date) {
+async function postToSheet(entries, date, fallbackTime) {
   try {
     const stored = await new Promise(r => chrome.storage.local.get(['sheetScriptUrl'], r));
     const url = (stored.sheetScriptUrl || '').trim();
@@ -690,7 +690,7 @@ async function postToSheet(entries, date) {
 
     const payload = entries
       .filter(e => (parseInt(e.sent) || 0) > 0)
-      .map(e => ({ msgname: e.msgname, sent: e.sent, _bcTime: e._bcTime || null, date }));
+      .map(e => ({ msgname: e.msgname, sent: e.sent, _bcTime: e._bcTime || fallbackTime || null, date }));
 
     if (!payload.length) return;
 

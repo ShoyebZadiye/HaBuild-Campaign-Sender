@@ -55,22 +55,24 @@ function doPost(e) {
   }
 }
 
-// ── Find date column (1-based) by matching DD/MM/YYYY ─
+// ── Find date column (1-based) ─────────────────────────
+// Handles both DD/MM/YYYY and MM/DD/YYYY text + Date objects
 function findDateCol(header, dateStr) {
   if (!dateStr) return null;
   const [y, m, d] = dateStr.split('-');
-  const target = `${d}/${m}/${y}`;
+  const targetDDMM = `${d}/${m}/${y}`;  // "30/04/2026"
+  const targetMMDD = `${m}/${d}/${y}`;  // "04/30/2026"
 
   for (let c = DATE_COL_FROM - 1; c < header.length; c++) {
     const cell = header[c];
     if (!cell) continue;
-    let s = '';
     if (cell instanceof Date) {
-      s = pad(cell.getDate()) + '/' + pad(cell.getMonth() + 1) + '/' + cell.getFullYear();
+      const s = pad(cell.getDate()) + '/' + pad(cell.getMonth() + 1) + '/' + cell.getFullYear();
+      if (s === targetDDMM) return c + 1;
     } else {
-      s = String(cell).trim();
+      const s = String(cell).trim();
+      if (s === targetDDMM || s === targetMMDD) return c + 1;
     }
-    if (s === target) return c + 1; // 1-based
   }
   return null;
 }
