@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "HaBuild Campaign Sender",
+  "version": "1.1.0",
+  "description": "Extract campaign stats, generate WhatsApp messages, scan today's FREE/PAID summary",
+  "permissions": ["activeTab", "scripting", "storage", "clipboardWrite", "tabs"],
+  "host_permissions": [
+    "https://admin-panel.habuild.in/*",
+    "https://firestore.googleapis.com/*"
+  ],
+  "content_scripts": [{
+    "matches": ["https://admin-panel.habuild.in/*"],
+    "js": ["content/content.js"]
+  }],
+  "action": {
+    "default_popup": "popup/popup.html"
+  }
+}
