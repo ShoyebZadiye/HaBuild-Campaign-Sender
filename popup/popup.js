@@ -671,8 +671,37 @@ async function copyAndSave() {
     if (!saveResp.ok) throw new Error('Save failed');
     const n = entries.length;
     showFeedback(`✅ Copied & Saved! (${n} record${n > 1 ? 's' : ''})`, 'success');
+
+    // Fire-and-forget to Google Sheet
+    postToSheet(entries, today);
   } catch(e) {
     showFeedback('❌ Save error: ' + e.message, 'error');
+  }
+}
+
+// ══════════════════════════════════════════════
+// GOOGLE SHEET SYNC (fire-and-forget)
+// ══════════════════════════════════════════════
+async function postToSheet(entries, date) {
+  try {
+    const stored = await new Promise(r => chrome.storage.local.get(['sheetScriptUrl'], r));
+    const url = (stored.sheetScriptUrl || '').trim();
+    if (!url.startsWith('https://script.google.com/')) return;
+
+    const payload = entries
+      .filter(e => (parseInt(e.sent) || 0) > 0)
+      .map(e => ({ msgname: e.msgname, sent: e.sent, _bcTime: e._bcTime || null, date }));
+
+    if (!payload.length) return;
+
+    await fetch(url, {
+      method:   'POST',
+      redirect: 'follow',
+      headers:  { 'Content-Type': 'text/plain' },
+      body:     JSON.stringify({ entries: payload })
+    });
+  } catch(_) {
+    // fire-and-forget — silently ignore errors
   }
 }
 
@@ -1156,7 +1185,8 @@ function saveData() {
 }
 
 function loadSavedData() {
-  chrome.storage.local.get(['formData', 'darkMode', 'autoExtracted'], r => {
+  chrome.storage.local.get(['formData', 'darkMode', 'autoExtracted', 'sheetScriptUrl'], r => {
+    if (r.sheetScriptUrl) setVal('sheetScriptUrl', r.sheetScriptUrl);
     if (r.darkMode) {
       document.body.classList.add('dark');
       document.getElementById('darkBtn').textContent = '☀️';
@@ -1221,6 +1251,38 @@ document.addEventListener('DOMContentLoaded', () => {
   // Tabs
   document.getElementById('tab-send').addEventListener('click', () => switchTab('send'));
   document.getElementById('tab-scan').addEventListener('click', () => switchTab('scan'));
+  document.getElementById('tab-settings').addEventListener('click', () => switchTab('settings'));
+
+  // Settings
+  document.getElementById('saveSettingsBtn').addEventListener('click', () => {
+    const url = document.getElementById('sheetScriptUrl').value.trim();
+    chrome.storage.local.set({ sheetScriptUrl: url }, () => {
+      const fb = document.getElementById('settingsFeedback');
+      fb.textContent = '✅ Saved!'; fb.className = 'feedback success';
+      setTimeout(() => { fb.textContent = ''; fb.className = 'feedback'; }, 2000);
+    });
+  });
+
+  document.getElementById('testSheetBtn').addEventListener('click', async () => {
+    const url = document.getElementById('sheetScriptUrl').value.trim();
+    const fb  = document.getElementById('settingsFeedback');
+    if (!url.startsWith('https://script.google.com/')) {
+      fb.textContent = '❌ Valid script URL dalo'; fb.className = 'feedback error'; return;
+    }
+    fb.textContent = '⏳ Testing...'; fb.className = 'feedback info';
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      await fetch(url, {
+        method: 'POST', redirect: 'follow',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ entries: [{ msgname: 'TEST', sent: 0, _bcTime: null, date: today }] })
+      });
+      fb.textContent = '✅ Script connected!'; fb.className = 'feedback success';
+    } catch(e) {
+      fb.textContent = '❌ Error: ' + e.message; fb.className = 'feedback error';
+    }
+    setTimeout(() => { fb.textContent = ''; fb.className = 'feedback'; }, 3000);
+  });
 
   // Type toggle
   document.getElementById('typeFree').addEventListener('click', () => setType('FREE'));

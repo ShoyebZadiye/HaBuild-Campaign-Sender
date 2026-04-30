@@ -18,6 +18,7 @@
 <div class="tabs">
   <button class="tab active" id="tab-send">📤 Send</button>
   <button class="tab"        id="tab-scan">🔍 Scan Page</button>
+  <button class="tab"        id="tab-settings">⚙️</button>
 </div>
 
 <!-- ═══ SEND TAB ═══ -->
@@ -334,6 +335,20 @@
     <button id="saveBtn" class="btn-dashboard">💾 Save to Dashboard</button>
     <div id="scanStatus" class="feedback"></div>
   </div>
+</div>
+
+<!-- ═══ SETTINGS TAB ═══ -->
+<div id="panel-settings" class="panel">
+  <div class="field" style="margin-bottom:10px">
+    <label>Google Sheet Script URL</label>
+    <input type="url" id="sheetScriptUrl" placeholder="https://script.google.com/macros/s/.../exec" style="font-size:.72rem">
+    <span style="font-size:.68rem;color:var(--muted);margin-top:3px;display:block">Count Sheet mein auto-save ke liye Apps Script URL</span>
+  </div>
+  <div class="btn-row">
+    <button id="saveSettingsBtn" class="btn-copy" style="background:#6366f1;color:#fff">💾 Save</button>
+    <button id="testSheetBtn"    class="btn-copy" style="background:#0ea5e9;color:#fff">🧪 Test</button>
+  </div>
+  <div id="settingsFeedback" class="feedback" style="margin-top:8px"></div>
 </div>
 
 <script src="popup.js"></script>

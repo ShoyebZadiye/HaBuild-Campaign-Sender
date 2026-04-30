@@ -6,7 +6,9 @@
   "permissions": ["activeTab", "scripting", "storage", "clipboardWrite", "tabs"],
   "host_permissions": [
     "https://admin-panel.habuild.in/*",
-    "https://firestore.googleapis.com/*"
+    "https://firestore.googleapis.com/*",
+    "https://script.google.com/*",
+    "https://script.googleusercontent.com/*"
   ],
   "content_scripts": [{
     "matches": ["https://admin-panel.habuild.in/*"],
