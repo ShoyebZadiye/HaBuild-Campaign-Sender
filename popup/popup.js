@@ -713,13 +713,15 @@ async function copyAndSave() {
     if (!saveResp.ok) throw new Error('Save failed');
     const n = entries.length;
 
-    // Fire-and-forget to Google Sheet
-    postToSheet(entries, today, time);
+    showFeedback(`⏳ Firestore saved (${n})! Sheet update ho raha hai...`, 'info');
+    const sheetOk = await postToSheet(entries, today, time);
 
-    // Countdown reset: 10 → 0 then auto-clear all fields
+    if (!sheetOk) return; // sheet failed — show error, don't reset
+
+    // Countdown reset only after sheet confirms update
     let secs = 10;
     const tick = () => {
-      showFeedback(`✅ Saved! Reset in ${secs}s… (reload karo rokne k liye)`, 'success');
+      showFeedback(`✅ Sheet updated! Reset in ${secs}s…`, 'success');
       if (secs <= 0) { document.getElementById('reloadBtn').click(); return; }
       secs--;
       setTimeout(tick, 1000);
@@ -733,22 +735,21 @@ async function copyAndSave() {
 // ══════════════════════════════════════════════
 // GOOGLE SHEET SYNC (fire-and-forget)
 // ══════════════════════════════════════════════
+// Returns true if sheet updated ≥1 row (or CORS no-response), false otherwise
 async function postToSheet(entries, date, fallbackTime) {
   try {
     const stored = await new Promise(r => chrome.storage.local.get(['sheetScriptUrl'], r));
     const url = (stored.sheetScriptUrl || '').trim();
-    if (!url.startsWith('https://script.google.com/')) return;
+    if (!url.startsWith('https://script.google.com/')) return false;
 
     const rawPayload = entries
       .filter(e => (parseInt(e.sent) || 0) > 0)
       .map(e => ({ msgname: e.msgname, sent: e.sent, _bcTime: e._bcTime || null, date }));
 
-    // All entries use same time so they sum into one cell correctly.
-    // Prefer BC-matched time; fall back to current time.
     const sharedTime = rawPayload.find(e => e._bcTime)?._bcTime || fallbackTime || null;
     const payload = rawPayload.map(e => ({ ...e, _bcTime: e._bcTime || sharedTime }));
 
-    if (!payload.length) { showFeedback('⚠️ Sheet: payload empty (sent=0?)', 'error'); return; }
+    if (!payload.length) { showFeedback('⚠️ Sheet: payload empty (sent=0?)', 'error'); return false; }
 
     console.log('[Sheet] payload:', JSON.stringify(payload));
 
@@ -765,23 +766,28 @@ async function postToSheet(entries, date, fallbackTime) {
         const ok  = (parsed.debug || []).filter(d => d.row).map(d => d.rowName).join(', ');
         const bad = (parsed.debug || []).filter(d => d.skip).map(d => d.skip + ':' + (d.msgname||'') + (d.time12 ? '@' + d.time12 : '')).join(' | ');
         const payInfo = payload.map(e => e.msgname.split(' ').pop() + '=' + e.sent).join(', ');
-        const msg = parsed.updated > 0
-          ? '✅ Sheet: ' + parsed.updated + ' updated → ' + ok
-          : '⚠️ 0 updated [' + payInfo + '] ' + (bad || '← redeploy script?');
-        showFeedback(msg, parsed.updated > 0 ? 'success' : 'error');
+        if (parsed.updated > 0) {
+          showFeedback('✅ Sheet: ' + parsed.updated + ' updated → ' + ok, 'success');
+          return true;
+        } else {
+          showFeedback('⚠️ Sheet: 0 updated [' + payInfo + '] ' + (bad || '← redeploy script?'), 'error');
+          return false;
+        }
       } else {
         showFeedback('⚠️ Sheet: ' + (parsed?.error || txt || 'no response'), 'error');
+        return false;
       }
     } catch(_) {
-      // CORS/redirect fallback
+      // CORS/redirect fallback — assume success
       await fetch(url, {
         method: 'POST', mode: 'no-cors',
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify({ entries: payload })
       });
       showFeedback('✅ Sheet sent (no response)', 'success');
+      return true;
     }
-  } catch(_) {}
+  } catch(_) { return false; }
 }
 
 // ══════════════════════════════════════════════
