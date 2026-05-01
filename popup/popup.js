@@ -7,6 +7,8 @@ const FS_URL  = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databas
 let currentType = 'PAID';
 let lastScanData = null;
 let paidCamps = [{name:'', sent:'', expected:'', wati:'all WATIs'}];
+let lastBcTime  = null; // broadcast time extracted from admin panel card
+let adminName   = '';  // set in Settings → stamped on every record
 
 // ── FIELD LISTS ───────────────────────────────
 const FREE_FIELDS = ['campaignName','sentCount','expectedCount','yesterdayCount','challengeId','batch','watiSelFree'];
@@ -204,6 +206,7 @@ function clearTemplateFields(tpl) {
   } else {
     paidCamps = [{name:'', sent:'', expected:'', wati:'all WATIs'}];
   }
+  // Always clear yesterday count so next extract re-fetches for the new template
   setVal('paidYestCount', '');
 }
 
@@ -508,7 +511,8 @@ async function copyAndSave() {
 
   try {
     const now   = new Date();
-    const today = now.toISOString().slice(0, 10);
+    const pad2  = n => String(n).padStart(2, '0');
+    const today = `${now.getFullYear()}-${pad2(now.getMonth()+1)}-${pad2(now.getDate())}`;
     const time  = now.toTimeString().slice(0, 5);
     const entries = [];
 
@@ -590,9 +594,15 @@ async function copyAndSave() {
     entries.forEach(e => { if (!e.category) e.category = currentType; });
 
     const resp = await fetch(`${FS_URL}/appData/main?key=${API_KEY}`);
-    const doc  = resp.ok ? await resp.json() : { fields: {} };
+    if (!resp.ok) throw new Error('Firestore fetch failed: ' + resp.status);
+    const doc  = await resp.json();
+    if (!doc.fields || Object.keys(doc.fields).length === 0) throw new Error('Empty Firestore response — aborted to protect data');
     const data = fromFS(doc.fields || {});
     const records = data.records || [];
+    // Local backup before every save — recoverable from extension storage
+    if (records.length > 0) {
+      chrome.storage.local.set({ recordsBackup: { records, savedAt: Date.now() } });
+    }
 
     const toMins = t => {
       if (!t) return -1;
@@ -619,24 +629,52 @@ async function copyAndSave() {
     const usedBcIds    = new Set();
 
     entries.forEach(entry => {
-      // Find best matching broadcast: same category + exact name (case-insensitive) + closest time within 90 min
-      const bc = broadcasts
+      const n = entry.msgname.toLowerCase();
+      const isAttendanceEntry = n.includes('attendance') || n.includes('tracker') || n.includes('milestone');
+
+      // Exact name match — first try within ±90 min, then any time (user may save hours later)
+      const sortByTimeDist = (a, b_) => {
+        const da = a.time ? Math.abs(toMins(a.time) - curMins) : 999;
+        const db = b_.time ? Math.abs(toMins(b_.time) - curMins) : 999;
+        return da - db;
+      };
+      const bcNear = broadcasts
         .filter(b =>
           b.category === entry.category &&
           !usedBcIds.has(b.id) &&
           b.msgname.toLowerCase() === entry.msgname.toLowerCase() &&
           (!b.time || Math.abs(toMins(b.time) - curMins) <= 90)
         )
-        .sort((a, b_) => {
-          const da = a.time ? Math.abs(toMins(a.time) - curMins) : 999;
-          const db = b_.time ? Math.abs(toMins(b_.time) - curMins) : 999;
-          return da - db;
-        })[0];
+        .sort(sortByTimeDist)[0];
+      const bcAny = bcNear || broadcasts
+        .filter(b =>
+          b.category === entry.category &&
+          !usedBcIds.has(b.id) &&
+          b.msgname.toLowerCase() === entry.msgname.toLowerCase()
+        )
+        .sort(sortByTimeDist)[0];
+      const bc = bcAny;
 
       if (bc) {
         usedBcIds.add(bc.id);
-        entry.msgname  = bc.msgname;  // use exact scheduler name
-        entry._bcTime  = bc.time;     // use scheduled time so findRecord() always matches
+        entry.msgname = bc.msgname;
+        entry._bcTime = lastBcTime || bc.time;
+      } else if (isAttendanceEntry) {
+        // Fuzzy BC match for attendance — only grab scheduled time, keep original msgname
+        // Needed because entries like "1st BATCH Attendance tracker" don't match scheduler names exactly
+        const attBc = broadcasts
+          .filter(b => {
+            const bn = b.msgname.toLowerCase();
+            return b.category === entry.category &&
+              b.time &&
+              (bn.includes('attendance') || bn.includes('tracker')) &&
+              Math.abs(toMins(b.time) - curMins) <= 90;
+          })
+          .sort((a, b_) => Math.abs(toMins(a.time) - curMins) - Math.abs(toMins(b_.time) - curMins))[0];
+        if (attBc) entry._bcTime = attBc.time;
+        else if (lastBcTime) entry._bcTime = lastBcTime;
+      } else {
+        if (lastBcTime && !entry._bcTime) entry._bcTime = lastBcTime;
       }
     });
 
@@ -645,7 +683,8 @@ async function copyAndSave() {
       const idx = records.findIndex(r =>
         r.date === today &&
         r.msgname === entry.msgname &&
-        Math.abs(toMins(r.time) - toMins(recordTime)) <= 20
+        (String(r.sent) === String(entry.sent) ||
+         Math.abs(toMins(r.time) - toMins(recordTime)) <= 30)
       );
       const tplNow = document.getElementById('paidTemplate')?.value || 'standard';
       const rec = {
@@ -657,7 +696,9 @@ async function copyAndSave() {
         msgname:  entry.msgname,
         sent:     entry.sent,
         expected: entry.expected,
-        diff:     entry.diff
+        diff:     entry.diff,
+        savedBy:  adminName || undefined,
+        savedAt:  (() => { const n = new Date(); let h = n.getHours(); const m = String(n.getMinutes()).padStart(2,'0'); const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; return `${h}:${m} ${ap}`; })()
       };
       if (idx >= 0) records[idx] = rec;
       else records.push(rec);
@@ -689,30 +730,49 @@ async function postToSheet(entries, date, fallbackTime) {
     const url = (stored.sheetScriptUrl || '').trim();
     if (!url.startsWith('https://script.google.com/')) return;
 
-    const payload = entries
+    const rawPayload = entries
       .filter(e => (parseInt(e.sent) || 0) > 0)
-      .map(e => ({ msgname: e.msgname, sent: e.sent, _bcTime: e._bcTime || fallbackTime || null, date }));
+      .map(e => ({ msgname: e.msgname, sent: e.sent, _bcTime: e._bcTime || null, date }));
 
-    if (!payload.length) return;
+    // All entries use same time so they sum into one cell correctly.
+    // Prefer BC-matched time; fall back to current time.
+    const sharedTime = rawPayload.find(e => e._bcTime)?._bcTime || fallbackTime || null;
+    const payload = rawPayload.map(e => ({ ...e, _bcTime: e._bcTime || sharedTime }));
 
-    const resp = await fetch(url, {
-      method:   'POST',
-      redirect: 'follow',
-      headers:  { 'Content-Type': 'text/plain' },
-      body:     JSON.stringify({ entries: payload })
-    });
-    const result = await resp.json().catch(() => null);
-    if (result && result.updated > 0) {
-      const d = result.debug?.[0];
-      const info = d ? ` → R${d.row} C${d.col} | ${d.rowName} | ${d.rowTime} | ${d.colHeader}` : '';
-      showFeedback(`✅ Sheet updated!${info}`, 'success');
-      console.log('[Sheet]', JSON.stringify(result.debug));
-    } else if (result && result.updated === 0) {
-      showFeedback('⚠️ Sheet: row/date not found', 'error');
+    if (!payload.length) { showFeedback('⚠️ Sheet: payload empty (sent=0?)', 'error'); return; }
+
+    console.log('[Sheet] payload:', JSON.stringify(payload));
+
+    try {
+      const resp = await fetch(url, {
+        method: 'POST', redirect: 'follow',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ entries: payload })
+      });
+      const txt = await resp.text();
+      let parsed;
+      try { parsed = JSON.parse(txt); } catch(_) { parsed = null; }
+      if (parsed && parsed.ok) {
+        const ok  = (parsed.debug || []).filter(d => d.row).map(d => d.rowName).join(', ');
+        const bad = (parsed.debug || []).filter(d => d.skip).map(d => d.skip + ':' + (d.msgname||'') + (d.time12 ? '@' + d.time12 : '')).join(' | ');
+        const payInfo = payload.map(e => e.msgname.split(' ').pop() + '=' + e.sent).join(', ');
+        const msg = parsed.updated > 0
+          ? '✅ Sheet: ' + parsed.updated + ' updated → ' + ok
+          : '⚠️ 0 updated [' + payInfo + '] ' + (bad || '← redeploy script?');
+        showFeedback(msg, parsed.updated > 0 ? 'success' : 'error');
+      } else {
+        showFeedback('⚠️ Sheet: ' + (parsed?.error || txt || 'no response'), 'error');
+      }
+    } catch(_) {
+      // CORS/redirect fallback
+      await fetch(url, {
+        method: 'POST', mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ entries: payload })
+      });
+      showFeedback('✅ Sheet sent (no response)', 'success');
     }
-  } catch(_) {
-    // fire-and-forget — silently ignore errors
-  }
+  } catch(_) {}
 }
 
 // ══════════════════════════════════════════════
@@ -779,11 +839,13 @@ async function extractFromPage() {
 
 async function fillFields(data) {
   if (data.category) setType(data.category);
+  if (data.bcTime) lastBcTime = data.bcTime;
 
-  // Derive the time the Stats button was clicked — used for closest-time yesterday match
-  const timeStr = data.extractedAt
-    ? new Date(data.extractedAt).toTimeString().slice(0, 5)
-    : new Date().toTimeString().slice(0, 5);
+  // Use broadcast time (bcTime) for yesterday lookup — extraction time (extractedAt) is wrong
+  const timeStr = data.bcTime ||
+    (data.extractedAt
+      ? new Date(data.extractedAt).toTimeString().slice(0, 5)
+      : new Date().toTimeString().slice(0, 5));
 
   if (currentType === 'FREE') {
     if (data.campaignName)  setVal('campaignName',  data.campaignName);
@@ -879,14 +941,10 @@ async function fillFields(data) {
       else                                                      { sId='att1Sent'; eId='att1Exp'; label='Attendance'; }
       if (data.sentCount)     setVal(sId, data.sentCount);
       if (data.expectedCount) setVal(eId, data.expectedCount);
-      if (!val('paidYestCount')) {
-        showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
-        const yest = await fetchYesterdayTotal('attendance', timeStr);
-        if (yest !== null) { setVal('paidYestCount', String(yest)); showFeedback(`✅ ${label} slot fill hua!`, 'success'); }
-        else showFeedback(`✅ ${label} slot fill hua! (Yesterday manually dalo)`, 'info');
-      } else {
-        showFeedback(`✅ ${label} slot fill hua!`, 'success');
-      }
+      showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
+      const yestAtt = await fetchYesterdayTotal('attendance', timeStr);
+      if (yestAtt !== null) { setVal('paidYestCount', String(yestAtt)); showFeedback(`✅ ${label} slot fill hua!`, 'success'); }
+      else showFeedback(`✅ ${label} slot fill hua! (Yesterday manually dalo)`, 'info');
     } else if (tpl === 'reminder') {
       const n = (data.campaignName || '').toLowerCase();
       let sId, eId, label;
@@ -894,14 +952,10 @@ async function fillFields(data) {
       else                      { sId='remYESent';    eId='remYEExp';    label='YE Reminder'; }
       if (data.sentCount)     setVal(sId, data.sentCount);
       if (data.expectedCount) setVal(eId, data.expectedCount);
-      if (!val('paidYestCount')) {
-        showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
-        const yest = await fetchYesterdayTotal('reminder', timeStr);
-        if (yest !== null) { setVal('paidYestCount', String(yest)); showFeedback(`✅ ${label} slot fill hua!`, 'success'); }
-        else showFeedback(`✅ ${label} slot fill hua! (Yesterday manually dalo)`, 'info');
-      } else {
-        showFeedback(`✅ ${label} slot fill hua!`, 'success');
-      }
+      showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
+      const yestRem = await fetchYesterdayTotal('reminder', timeStr);
+      if (yestRem !== null) { setVal('paidYestCount', String(yestRem)); showFeedback(`✅ ${label} slot fill hua!`, 'success'); }
+      else showFeedback(`✅ ${label} slot fill hua! (Yesterday manually dalo)`, 'info');
     } else if (tpl === 'night') {
       const n = (data.campaignName || '').toLowerCase();
       const slots = [
@@ -915,14 +969,10 @@ async function fillFields(data) {
                : (slots.find(s => !val(s.sId)) || slots[0]);
       if (data.sentCount)     setVal(slot.sId, data.sentCount);
       if (data.expectedCount) setVal(slot.eId, data.expectedCount);
-      if (!val('paidYestCount')) {
-        showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
-        const yest = await fetchYesterdayTotal('night', timeStr, false);
-        if (yest !== null) { setVal('paidYestCount', String(yest)); showFeedback(`✅ Night ${slot.label} slot fill hua!`, 'success'); }
-        else showFeedback(`✅ Night ${slot.label} slot fill hua! (Yesterday manually dalo)`, 'info');
-      } else {
-        showFeedback(`✅ Night ${slot.label} slot fill hua!`, 'success');
-      }
+      showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
+      const yestNight = await fetchYesterdayTotal('night', timeStr, false);
+      if (yestNight !== null) { setVal('paidYestCount', String(yestNight)); showFeedback(`✅ Night ${slot.label} slot fill hua!`, 'success'); }
+      else showFeedback(`✅ Night ${slot.label} slot fill hua! (Yesterday manually dalo)`, 'info');
     } else if (tpl === 'night_hindi') {
       const n = (data.campaignName || '').toLowerCase();
       const slots = [
@@ -936,14 +986,10 @@ async function fillFields(data) {
                : (slots.find(s => !val(s.sId)) || slots[0]);
       if (data.sentCount)     setVal(slot.sId, data.sentCount);
       if (data.expectedCount) setVal(slot.eId, data.expectedCount);
-      if (!val('paidYestCount')) {
-        showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
-        const yest = await fetchYesterdayTotal('night', timeStr, true);
-        if (yest !== null) { setVal('paidYestCount', String(yest)); showFeedback(`✅ Night ${slot.label} slot fill hua!`, 'success'); }
-        else showFeedback(`✅ Night ${slot.label} slot fill hua! (Yesterday manually dalo)`, 'info');
-      } else {
-        showFeedback(`✅ Night ${slot.label} slot fill hua!`, 'success');
-      }
+      showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
+      const yestNightH = await fetchYesterdayTotal('night', timeStr, true);
+      if (yestNightH !== null) { setVal('paidYestCount', String(yestNightH)); showFeedback(`✅ Night ${slot.label} slot fill hua!`, 'success'); }
+      else showFeedback(`✅ Night ${slot.label} slot fill hua! (Yesterday manually dalo)`, 'info');
     }
   }
 
@@ -961,37 +1007,110 @@ function getPrevLabel() {
   return new Date().getDay() === 1 ? "Saturday's Count" : "Yesterday's Count";
 }
 
-// ── FETCH YESTERDAY TOTAL (sum records by subtype + time window ±30 min) ─
+// ── COUNT SHEET CSV FALLBACK ──────────────────────────────────────────────
+const CS_CSV_URL = 'https://docs.google.com/spreadsheets/d/17KV51RAjGrrCftIfei9obV-QXl1aC7AF6XAF0lUQsIU/export?format=csv&gid=617135708';
+
+function _parseCSVLine(line) {
+  const fields = []; let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') inQ = !inQ;
+    else if (c === ',' && !inQ) { fields.push(cur); cur = ''; }
+    else cur += c;
+  }
+  fields.push(cur);
+  return fields;
+}
+function _parseDateHdr(raw) {
+  const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const a = parseInt(m[1]), b = parseInt(m[2]), y = parseInt(m[3]);
+  if (a > 12) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  if (b > 12) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+  if (y >= 2026) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+  return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+}
+function _csSheetTimeMins(t) {
+  if (!t) return -1;
+  const s = t.trim().toLowerCase();
+  const m12 = s.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/);
+  if (m12) {
+    let h = parseInt(m12[1]); const min = parseInt(m12[2]);
+    if (m12[3] === 'pm' && h !== 12) h += 12;
+    if (m12[3] === 'am' && h === 12) h = 0;
+    return h * 60 + min;
+  }
+  const m24 = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (m24) return parseInt(m24[1]) * 60 + parseInt(m24[2]);
+  return -1;
+}
+// Fetch yesterday count from count sheet by time match (±10 min)
+async function fetchCountSheetYesterday(currentTimeStr) {
+  try {
+    const yDate = getPrevDate();
+    const toMins = t => { if (!t) return -1; const [h,m] = t.split(':').map(Number); return h*60+(m||0); };
+    const curMins = toMins(currentTimeStr);
+    if (curMins < 0) return null;
+
+    const resp = await fetch(CS_CSV_URL + '&_=' + Date.now());
+    if (!resp.ok) return null;
+    const text = await resp.text();
+    const lines = text.split('\n');
+    const hdr = _parseCSVLine(lines[1] || '');
+
+    // Find column for yesterday's date
+    let yCol = -1;
+    for (let c = 5; c < hdr.length; c++) {
+      if (_parseDateHdr(hdr[c].trim().replace(/"/g,'')) === yDate) { yCol = c; break; }
+    }
+    if (yCol < 0) return null;
+
+    // Find row with best time match
+    let best = null, bestDiff = 11;
+    for (let i = 2; i < lines.length; i++) {
+      const f = _parseCSVLine(lines[i]);
+      if (!f[0] || !f[0].trim()) continue;
+      const rowMins = _csSheetTimeMins((f[1]||'').trim());
+      if (rowMins < 0) continue;
+      const diff = Math.abs(rowMins - curMins);
+      if (diff < bestDiff) {
+        const v = parseInt((f[yCol]||'').replace(/[^0-9]/g,''));
+        if (v > 0) { bestDiff = diff; best = v; }
+      }
+    }
+    return best;
+  } catch(e) { return null; }
+}
+
+// ── FETCH YESTERDAY TOTAL (sum records by subtype ±30 min) ───────────────
 // hindiOnly: true = only Hindi records, false = only non-Hindi, null = all
 async function fetchYesterdayTotal(subtype, currentTimeStr, hindiOnly = null) {
   try {
     const yDate = getPrevDate();
-    const resp = await fetch(`${FS_URL}/appData/main?key=${API_KEY}`);
+    const resp  = await fetch(`${FS_URL}/appData/main?key=${API_KEY}`);
     if (!resp.ok) return null;
     const doc  = await resp.json();
     const data = fromFS(doc.fields || {});
     const toMins = t => { if (!t) return -1; const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0); };
-    const curMins = toMins(currentTimeStr);
-    const matchesHindi = r => (r.msgname || '').toLowerCase().includes('hindi');
+    const curMins     = toMins(currentTimeStr);
+    const matchHindi  = r => (r.msgname || '').toLowerCase().includes('hindi');
     const records = (data.records || []).filter(r => {
       if (r.date !== yDate || !r.time) return false;
       const diff = Math.abs(toMins(r.time) - curMins);
       if (r.subtype === subtype && diff <= 30) {
-        if (hindiOnly !== null && matchesHindi(r) !== hindiOnly) return false;
+        if (hindiOnly !== null && matchHindi(r) !== hindiOnly) return false;
         return true;
       }
-      // fallback for reminder records saved with wrong subtype (e.g. 'yoga')
       if (subtype === 'reminder' &&
           (r.msgname || '').toLowerCase().includes('reminder') &&
           !(r.msgname || '').toLowerCase().includes('night') &&
           diff <= 20) return true;
       return false;
     });
-    if (!records.length) return null;
-    return records.reduce((sum, r) => sum + (parseInt(r.sent) || 0), 0);
-  } catch(e) {
-    return null;
-  }
+    if (records.length) return records.reduce((sum, r) => sum + (parseInt(r.sent) || 0), 0);
+  } catch(e) {}
+  // Condition 2: count sheet fallback
+  return await fetchCountSheetYesterday(currentTimeStr);
 }
 
 // ── FETCH YESTERDAY COUNT (closest time match) ─
@@ -1006,27 +1125,23 @@ async function fetchYesterdayCount(msgname, currentTimeStr) {
     const norm = s => (s||'').toLowerCase().trim();
     const matches = (data.records || []).filter(r => r.date === yDate && norm(r.msgname) === norm(msgname));
 
-    if (!matches.length && currentTimeStr) {
-      // Name changed day-to-day — fall back to same-time window (±30 min)
+    if (matches.length) {
+      if (matches.length === 1 || !currentTimeStr) return matches[0].sent;
+      const cur = toMins(currentTimeStr);
+      return matches.reduce((a, b) =>
+        Math.abs(toMins(a.time) - cur) <= Math.abs(toMins(b.time) - cur) ? a : b
+      ).sent;
+    }
+    if (currentTimeStr) {
       const cur = toMins(currentTimeStr);
       const timeMatches = (data.records || []).filter(r =>
         r.date === yDate && r.time && Math.abs(toMins(r.time) - cur) <= 30
       );
       if (timeMatches.length === 1) return timeMatches[0].sent;
-      return null;
     }
-    if (!matches.length) return null;
-    if (matches.length === 1 || !currentTimeStr) return matches[0].sent;
-
-    // Multiple records for same name — pick the one closest in time
-    const cur = toMins(currentTimeStr);
-    const best = matches.reduce((a, b) =>
-      Math.abs(toMins(a.time) - cur) <= Math.abs(toMins(b.time) - cur) ? a : b
-    );
-    return best.sent;
-  } catch(e) {
-    return null;
-  }
+  } catch(e) {}
+  // Condition 2: count sheet fallback
+  return await fetchCountSheetYesterday(currentTimeStr);
 }
 
 // ══════════════════════════════════════════════
@@ -1195,8 +1310,9 @@ function saveData() {
 }
 
 function loadSavedData() {
-  chrome.storage.local.get(['formData', 'darkMode', 'autoExtracted', 'sheetScriptUrl'], r => {
+  chrome.storage.local.get(['formData', 'darkMode', 'autoExtracted', 'sheetScriptUrl', 'adminName'], r => {
     if (r.sheetScriptUrl) setVal('sheetScriptUrl', r.sheetScriptUrl);
+    if (r.adminName) { adminName = r.adminName; setVal('adminNameInput', r.adminName); }
     if (r.darkMode) {
       document.body.classList.add('dark');
       document.getElementById('darkBtn').textContent = '☀️';
@@ -1241,7 +1357,7 @@ function showFeedback(msg, type) {
   const el = document.getElementById('feedback');
   el.textContent = msg;
   el.className = 'feedback ' + type;
-  if (msg) setTimeout(() => { el.textContent = ''; el.className = 'feedback'; }, 3000);
+  if (msg) setTimeout(() => { el.textContent = ''; el.className = 'feedback'; }, 10000);
 }
 
 function showScanStatus(msg, type) {
@@ -1265,12 +1381,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Settings
   document.getElementById('saveSettingsBtn').addEventListener('click', () => {
-    const url = document.getElementById('sheetScriptUrl').value.trim();
-    chrome.storage.local.set({ sheetScriptUrl: url }, () => {
+    const url  = document.getElementById('sheetScriptUrl').value.trim();
+    const name = (document.getElementById('adminNameInput')?.value || '').trim();
+    adminName = name;
+    chrome.storage.local.set({ sheetScriptUrl: url, adminName: name }, () => {
       const fb = document.getElementById('settingsFeedback');
       fb.textContent = '✅ Saved!'; fb.className = 'feedback success';
       setTimeout(() => { fb.textContent = ''; fb.className = 'feedback'; }, 2000);
     });
+  });
+
+  document.getElementById('cleanDupsBtn')?.addEventListener('click', async () => {
+    const fb = document.getElementById('settingsFeedback');
+    fb.textContent = '⏳ Cleaning...'; fb.className = 'feedback info';
+    try {
+      const resp = await fetch(`${FS_URL}/appData/main?key=${API_KEY}`);
+      const doc  = await resp.json();
+      const data = fromFS(doc.fields || {});
+      const records = data.records || [];
+      const seen = {};
+      const cleaned = records.filter(r => {
+        const key = `${r.date}_${r.msgname}_${r.sent}`;
+        if (seen[key]) return false;
+        seen[key] = true;
+        return true;
+      });
+      const removed = records.length - cleaned.length;
+      if (removed === 0) { fb.textContent = '✅ No duplicates found'; fb.className = 'feedback success'; return; }
+      await fetch(`${FS_URL}/appData/main?key=${API_KEY}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: toFS({ ...data, records: cleaned }).mapValue.fields })
+      });
+      fb.textContent = `✅ ${removed} duplicates removed`; fb.className = 'feedback success';
+    } catch(e) {
+      fb.textContent = '❌ ' + e.message; fb.className = 'feedback error';
+    }
+    setTimeout(() => { fb.textContent = ''; fb.className = 'feedback'; }, 4000);
   });
 
   document.getElementById('testSheetBtn').addEventListener('click', async () => {
@@ -1294,6 +1440,43 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => { fb.textContent = ''; fb.className = 'feedback'; }, 3000);
   });
 
+  // Backup buttons
+  document.getElementById('checkBackupBtn').addEventListener('click', () => {
+    const fb = document.getElementById('settingsFeedback');
+    chrome.storage.local.get(['recordsBackup'], r => {
+      if (!r.recordsBackup) { fb.textContent = '❌ Koi backup nahi mila'; fb.className = 'feedback error'; return; }
+      const d = new Date(r.recordsBackup.savedAt);
+      fb.textContent = `✅ Backup: ${r.recordsBackup.records.length} records — ${d.toLocaleString()}`;
+      fb.className = 'feedback success';
+    });
+  });
+
+  document.getElementById('restoreBackupBtn').addEventListener('click', async () => {
+    const fb = document.getElementById('settingsFeedback');
+    chrome.storage.local.get(['recordsBackup'], async r => {
+      if (!r.recordsBackup || !r.recordsBackup.records.length) {
+        fb.textContent = '❌ Koi backup nahi mila'; fb.className = 'feedback error'; return;
+      }
+      try {
+        fb.textContent = '⏳ Restoring...'; fb.className = 'feedback info';
+        const resp = await fetch(`${FS_URL}/appData/main?key=${API_KEY}`);
+        if (!resp.ok) throw new Error('Fetch failed');
+        const doc  = await resp.json();
+        const data = fromFS(doc.fields || {});
+        const merged = [...r.recordsBackup.records];
+        // Merge: add any current records not already in backup (by id)
+        const backupIds = new Set(merged.map(x => x.id));
+        (data.records || []).forEach(x => { if (!backupIds.has(x.id)) merged.push(x); });
+        const saveResp = await fetch(`${FS_URL}/appData/main?key=${API_KEY}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields: toFS({ ...data, records: merged }).mapValue.fields })
+        });
+        if (!saveResp.ok) throw new Error('Save failed');
+        fb.textContent = `✅ Restored! ${merged.length} records wapas aaye`; fb.className = 'feedback success';
+      } catch(e) { fb.textContent = '❌ ' + e.message; fb.className = 'feedback error'; }
+    });
+  });
+
   // Type toggle
   document.getElementById('typeFree').addEventListener('click', () => setType('FREE'));
   document.getElementById('typePaid').addEventListener('click', () => setType('PAID'));
@@ -1308,7 +1491,29 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('copyAndSaveBtn').addEventListener('click', copyAndSave);
   document.getElementById('whatsappBtn').addEventListener('click', sendWhatsApp);
   document.getElementById('darkBtn').addEventListener('click', toggleDark);
-  document.getElementById('reloadBtn').addEventListener('click', () => chrome.runtime.reload());
+  document.getElementById('reloadBtn').addEventListener('click', async () => {
+    // Reset all template fields for every template type
+    ['pause','renewal_minus','renewal_plus','attendance','reminder','night','night_hindi'].forEach(t => clearTemplateFields(t));
+    paidCamps = [{ name: '', sent: '', expected: '', wati: 'all WATIs' }];
+    // Reset dropdowns to defaults
+    const tplEl   = document.getElementById('paidTemplate');
+    const watiEl  = document.getElementById('paidWati');
+    const batchEl = document.getElementById('remBatch');
+    const freeBatch = document.getElementById('batch');
+    if (tplEl)    { tplEl.selectedIndex   = 0; }
+    if (watiEl)   { watiEl.selectedIndex  = 0; }
+    if (batchEl)  { batchEl.selectedIndex = 0; }
+    if (freeBatch){ freeBatch.selectedIndex = 0; }
+    // Reset text fields
+    setVal('sentCount', '');  setVal('expectedCount', '');
+    setVal('yesterdayCount', ''); setVal('campaignName', '');
+    setVal('paidYestCount', '');
+    renderCampRows(); updateTotal(); onTemplateChange();
+    lastBcTime = null;
+    await chrome.storage.local.remove('autoExtracted');
+    updatePreview();
+    showFeedback('✅ Cleared!', 'success');
+  });
   document.getElementById('scanBtn').addEventListener('click', scanPage);
   document.getElementById('saveBtn').addEventListener('click', saveToDashboard);
   document.getElementById('addCampBtn').addEventListener('click', addCamp);
