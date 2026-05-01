@@ -712,10 +712,19 @@ async function copyAndSave() {
 
     if (!saveResp.ok) throw new Error('Save failed');
     const n = entries.length;
-    showFeedback(`✅ Copied & Saved! (${n} record${n > 1 ? 's' : ''})`, 'success');
 
     // Fire-and-forget to Google Sheet
     postToSheet(entries, today, time);
+
+    // Countdown reset: 10 → 0 then auto-clear all fields
+    let secs = 10;
+    const tick = () => {
+      showFeedback(`✅ Saved! Reset in ${secs}s… (reload karo rokne k liye)`, 'success');
+      if (secs <= 0) { document.getElementById('reloadBtn').click(); return; }
+      secs--;
+      setTimeout(tick, 1000);
+    };
+    tick();
   } catch(e) {
     showFeedback('❌ Save error: ' + e.message, 'error');
   }
