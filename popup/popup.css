@@ -101,3 +101,18 @@ body.dark .camp-row{background:#334155;border-color:#475569}
 .camp-badge{font-size:.68rem;font-weight:700;padding:2px 7px;border-radius:20px}
 .camp-badge.PAID{background:#dbeafe;color:#1e40af}
 .camp-badge.FREE{background:#d1fae5;color:#065f46}
+
+
+/* ── MISMATCH DIALOG ── */
+#mismatch-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;align-items:flex-end;justify-content:center}
+#mismatch-overlay.show{display:flex}
+#mismatch-box{background:#fff;border-radius:14px 14px 0 0;padding:18px 16px 14px;width:100%;box-shadow:0 -4px 24px rgba(0,0,0,.18)}
+body.dark #mismatch-box{background:#1e293b;color:#e2e8f0}
+#mismatch-box h4{font-size:.88rem;font-weight:700;color:#ef4444;margin-bottom:10px}
+.mm-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.mm-card{border-radius:10px;padding:10px 12px;text-align:center;cursor:pointer;border:2px solid transparent;transition:all .15s}
+.mm-card:hover{opacity:.85}
+.mm-card.fs{background:#dbeafe;color:#1e40af}
+.mm-card.cs{background:#d1fae5;color:#065f46}
+.mm-card .mm-num{font-size:1.3rem;font-weight:800}
+.mm-card .mm-lbl{font-size:.7rem;font-weight:700;margin-top:2px}

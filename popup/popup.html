@@ -10,7 +10,7 @@
 <div class="header">
   <span>🟢 HaBuild Campaign Sender</span>
   <div style="display:flex;gap:6px">
-    <button id="reloadBtn" title="Reload Extension">🔄</button>
+    <button id="reloadBtn" title="Clear fields & re-extract from page">🔄</button>
     <button id="darkBtn">🌙</button>
   </div>
 </div>
@@ -340,6 +340,10 @@
 <!-- ═══ SETTINGS TAB ═══ -->
 <div id="panel-settings" class="panel">
   <div class="field" style="margin-bottom:10px">
+    <label>Your Name (saved on every record)</label>
+    <input type="text" id="adminNameInput" placeholder="e.g. Shoyeb" style="font-size:.85rem">
+  </div>
+  <div class="field" style="margin-bottom:10px">
     <label>Google Sheet Script URL</label>
     <input type="url" id="sheetScriptUrl" placeholder="https://script.google.com/macros/s/.../exec" style="font-size:.72rem">
     <span style="font-size:.68rem;color:var(--muted);margin-top:3px;display:block">Count Sheet mein auto-save ke liye Apps Script URL</span>
@@ -348,7 +352,33 @@
     <button id="saveSettingsBtn" class="btn-copy" style="background:#6366f1;color:#fff">💾 Save</button>
     <button id="testSheetBtn"    class="btn-copy" style="background:#0ea5e9;color:#fff">🧪 Test</button>
   </div>
+  <div class="btn-row" style="margin-top:8px">
+    <button id="restoreBackupBtn" class="btn-copy" style="background:#f59e0b;color:#fff">♻️ Restore Backup</button>
+    <button id="checkBackupBtn"   class="btn-copy" style="background:#64748b;color:#fff">📋 Check Backup</button>
+  </div>
+  <div class="btn-row" style="margin-top:8px">
+    <button id="cleanDupsBtn" class="btn-copy" style="background:#ef4444;color:#fff">🧹 Clean Duplicates</button>
+  </div>
   <div id="settingsFeedback" class="feedback" style="margin-top:8px"></div>
+</div>
+
+<!-- ── YESTERDAY COUNT MISMATCH DIALOG ── -->
+<div id="mismatch-overlay">
+  <div id="mismatch-box">
+    <h4>⚠️ Yesterday Count Mismatch!</h4>
+    <p style="font-size:.78rem;color:#64748b;margin-bottom:10px">Records aur Count Sheet ka data alag hai — kaunsa use karna hai?</p>
+    <div class="mm-row">
+      <div class="mm-card fs" id="mm-btn-fs">
+        <div class="mm-num" id="mm-fs-val">—</div>
+        <div class="mm-lbl">📋 Records</div>
+      </div>
+      <div class="mm-card cs" id="mm-btn-cs">
+        <div class="mm-num" id="mm-cs-val">—</div>
+        <div class="mm-lbl">📊 Count Sheet</div>
+      </div>
+    </div>
+    <button id="mm-cancel" style="width:100%;padding:7px;border:1.5px solid #e2e8f0;background:none;border-radius:8px;cursor:pointer;font-size:.8rem;color:#64748b">Cancel — manually bharunga</button>
+  </div>
 </div>
 
 <script src="popup.js"></script>

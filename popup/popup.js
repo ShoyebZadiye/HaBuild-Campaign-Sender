@@ -1044,6 +1044,21 @@ function _csSheetTimeMins(t) {
   if (m24) return parseInt(m24[1]) * 60 + parseInt(m24[2]);
   return -1;
 }
+// ── MISMATCH DIALOG ─────────────────────────────────────────────────────
+// Returns a Promise that resolves with the user's chosen value (or null if cancelled)
+function showMismatchPopup(fsVal, csVal) {
+  return new Promise(resolve => {
+    document.getElementById('mm-fs-val').textContent = Number(fsVal).toLocaleString('en-IN');
+    document.getElementById('mm-cs-val').textContent = Number(csVal).toLocaleString('en-IN');
+    const overlay = document.getElementById('mismatch-overlay');
+    overlay.classList.add('show');
+    const cleanup = (val) => { overlay.classList.remove('show'); resolve(val); };
+    document.getElementById('mm-btn-fs').onclick  = () => cleanup(fsVal);
+    document.getElementById('mm-btn-cs').onclick  = () => cleanup(csVal);
+    document.getElementById('mm-cancel').onclick  = () => cleanup(null);
+  });
+}
+
 // Fetch yesterday count from count sheet by time match (±10 min)
 async function fetchCountSheetYesterday(currentTimeStr) {
   try {
@@ -1085,63 +1100,73 @@ async function fetchCountSheetYesterday(currentTimeStr) {
 // ── FETCH YESTERDAY TOTAL (sum records by subtype ±30 min) ───────────────
 // hindiOnly: true = only Hindi records, false = only non-Hindi, null = all
 async function fetchYesterdayTotal(subtype, currentTimeStr, hindiOnly = null) {
+  let fsVal = null;
   try {
     const yDate = getPrevDate();
     const resp  = await fetch(`${FS_URL}/appData/main?key=${API_KEY}`);
-    if (!resp.ok) return null;
-    const doc  = await resp.json();
-    const data = fromFS(doc.fields || {});
-    const toMins = t => { if (!t) return -1; const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0); };
-    const curMins     = toMins(currentTimeStr);
-    const matchHindi  = r => (r.msgname || '').toLowerCase().includes('hindi');
-    const records = (data.records || []).filter(r => {
-      if (r.date !== yDate || !r.time) return false;
-      const diff = Math.abs(toMins(r.time) - curMins);
-      if (r.subtype === subtype && diff <= 30) {
-        if (hindiOnly !== null && matchHindi(r) !== hindiOnly) return false;
-        return true;
-      }
-      if (subtype === 'reminder' &&
-          (r.msgname || '').toLowerCase().includes('reminder') &&
-          !(r.msgname || '').toLowerCase().includes('night') &&
-          diff <= 20) return true;
-      return false;
-    });
-    if (records.length) return records.reduce((sum, r) => sum + (parseInt(r.sent) || 0), 0);
+    if (resp.ok) {
+      const doc  = await resp.json();
+      const data = fromFS(doc.fields || {});
+      const toMins = t => { if (!t) return -1; const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0); };
+      const curMins    = toMins(currentTimeStr);
+      const matchHindi = r => (r.msgname || '').toLowerCase().includes('hindi');
+      const records = (data.records || []).filter(r => {
+        if (r.date !== yDate || !r.time) return false;
+        const diff = Math.abs(toMins(r.time) - curMins);
+        if (r.subtype === subtype && diff <= 30) {
+          if (hindiOnly !== null && matchHindi(r) !== hindiOnly) return false;
+          return true;
+        }
+        if (subtype === 'reminder' &&
+            (r.msgname || '').toLowerCase().includes('reminder') &&
+            !(r.msgname || '').toLowerCase().includes('night') &&
+            diff <= 20) return true;
+        return false;
+      });
+      if (records.length) fsVal = records.reduce((sum, r) => sum + (parseInt(r.sent) || 0), 0);
+    }
   } catch(e) {}
-  // Condition 2: count sheet fallback
-  return await fetchCountSheetYesterday(currentTimeStr);
+
+  const csVal = await fetchCountSheetYesterday(currentTimeStr);
+
+  if (fsVal !== null && csVal !== null && fsVal !== csVal) return await showMismatchPopup(fsVal, csVal);
+  return fsVal ?? csVal;
 }
 
 // ── FETCH YESTERDAY COUNT (closest time match) ─
 async function fetchYesterdayCount(msgname, currentTimeStr) {
+  let fsVal = null;
   try {
     const yDate = getPrevDate();
     const resp = await fetch(`${FS_URL}/appData/main?key=${API_KEY}`);
-    if (!resp.ok) return null;
-    const doc  = await resp.json();
-    const data = fromFS(doc.fields || {});
-    const toMins = t => { if (!t) return -1; const [h,m] = t.split(':').map(Number); return h*60+(m||0); };
-    const norm = s => (s||'').toLowerCase().trim();
-    const matches = (data.records || []).filter(r => r.date === yDate && norm(r.msgname) === norm(msgname));
-
-    if (matches.length) {
-      if (matches.length === 1 || !currentTimeStr) return matches[0].sent;
-      const cur = toMins(currentTimeStr);
-      return matches.reduce((a, b) =>
-        Math.abs(toMins(a.time) - cur) <= Math.abs(toMins(b.time) - cur) ? a : b
-      ).sent;
-    }
-    if (currentTimeStr) {
-      const cur = toMins(currentTimeStr);
-      const timeMatches = (data.records || []).filter(r =>
-        r.date === yDate && r.time && Math.abs(toMins(r.time) - cur) <= 30
-      );
-      if (timeMatches.length === 1) return timeMatches[0].sent;
+    if (resp.ok) {
+      const doc  = await resp.json();
+      const data = fromFS(doc.fields || {});
+      const toMins = t => { if (!t) return -1; const [h,m] = t.split(':').map(Number); return h*60+(m||0); };
+      const norm = s => (s||'').toLowerCase().trim();
+      const matches = (data.records || []).filter(r => r.date === yDate && norm(r.msgname) === norm(msgname));
+      if (matches.length) {
+        if (matches.length === 1 || !currentTimeStr) fsVal = parseInt(matches[0].sent) || 0;
+        else {
+          const cur = toMins(currentTimeStr);
+          fsVal = parseInt(matches.reduce((a, b) =>
+            Math.abs(toMins(a.time) - cur) <= Math.abs(toMins(b.time) - cur) ? a : b
+          ).sent) || 0;
+        }
+      } else if (currentTimeStr) {
+        const cur = toMins(currentTimeStr);
+        const timeMatches = (data.records || []).filter(r =>
+          r.date === yDate && r.time && Math.abs(toMins(r.time) - cur) <= 30
+        );
+        if (timeMatches.length === 1) fsVal = parseInt(timeMatches[0].sent) || 0;
+      }
     }
   } catch(e) {}
-  // Condition 2: count sheet fallback
-  return await fetchCountSheetYesterday(currentTimeStr);
+
+  const csVal = await fetchCountSheetYesterday(currentTimeStr);
+
+  if (fsVal !== null && csVal !== null && fsVal !== csVal) return await showMismatchPopup(fsVal, csVal);
+  return fsVal ?? csVal;
 }
 
 // ══════════════════════════════════════════════
