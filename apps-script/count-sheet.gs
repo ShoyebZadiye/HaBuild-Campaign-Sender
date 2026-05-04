@@ -292,16 +292,17 @@ function jsonResponse(data) {
 }
 
 // ── Extra Sessions tab writer ──────────────────────────────────────
-var EXTRA_SHEET_NAME = 'Extra Sessions';
+var EXTRA_SHEET_NAME   = 'Extra Sessions';
+var SPREADSHEET_ID     = '17KV51RAjGrrCftIfei9obV-QXl1aC7AF6XAF0lUQsIU';
 
 function writeExtraEntries(entries) {
-  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var ss    = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(EXTRA_SHEET_NAME);
 
   if (!sheet) {
     sheet = ss.insertSheet(EXTRA_SHEET_NAME);
-    var hdr = sheet.getRange(1, 1, 1, 9);
-    hdr.setValues([['Date','Time','Type','Batch','WATI','Sent','Expected','Diff','Yesterday']]);
+    var hdr = sheet.getRange(1, 1, 1, 8);
+    hdr.setValues([['Date','Time','Type','Batch','Sent','Expected','Diff','Yesterday']]);
     hdr.setFontWeight('bold').setBackground('#f1f5f9');
     sheet.setFrozenRows(1);
   }
@@ -316,7 +317,6 @@ function writeExtraEntries(entries) {
       e.time      || '',
       label,
       e.batch     || '',
-      e.wati      || '',
       e.sent      || 0,
       e.expected  || '',
       e.diff      || '',
@@ -326,7 +326,7 @@ function writeExtraEntries(entries) {
     var color = e.type === 'water' ? '#e0f7fa'
               : e.type === 'email' ? '#e8eaf6'
               : '#f3e5f5';
-    sheet.getRange(sheet.getLastRow(), 1, 1, 9).setBackground(color);
+    sheet.getRange(sheet.getLastRow(), 1, 1, 8).setBackground(color);
     added++;
   });
   return added;
