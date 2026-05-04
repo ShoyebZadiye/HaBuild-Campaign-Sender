@@ -8,7 +8,11 @@ let currentType = 'PAID';
 let lastScanData = null;
 let paidCamps = [{name:'', sent:'', expected:'', wati:'all WATIs'}];
 let lastBcTime  = null; // broadcast time extracted from admin panel card
+let lastSheetRows = ''; // row names updated in last postToSheet call
+let lastBcDate  = null; // broadcast date extracted from admin panel card ("YYYY-MM-DD")
 let adminName   = '';  // set in Settings → stamped on every record
+// Tracks which slots have been filled — cleared only by Reload or Copy&Save
+const filledSlots = new Set();
 
 // ── FIELD LISTS ───────────────────────────────
 const FREE_FIELDS = ['campaignName','sentCount','expectedCount','yesterdayCount','challengeId','batch','watiSelFree'];
@@ -20,7 +24,11 @@ const PAID_STATIC = ['paidTemplate','paidWati','simpleTimePrefix','simpleNote',
   'nightHindiPresentSent','nightHindiPresentExp','nightHindiAbsentSent','nightHindiAbsentExp',
   'nightSundaySent','nightSundayExp','nightHindiSundaySent','nightHindiSundayExp',
   'attendBatch','att1Sent','att1Exp','att2Sent','att2Exp','att3Sent','att3Exp','att3Wati',
-  'paidYestCount'];
+  'sunAttSent','sunAttExp','sunMilSent','sunMilExp','sunHindiSent','sunHindiExp',
+  'paidYestCount',
+  'extraSubType','extraWaterTime','extraWaterWati','extraWaterSent','extraWaterYest',
+  'extraEmailBatch','extraEmailSent','extraEmailExp','extraEmailYest',
+  'extraSEBatch','extraSESent','extraSEWati'];
 
 // ══════════════════════════════════════════════
 // TABS
@@ -56,9 +64,11 @@ function onTemplateChange() {
   const isPause   = tpl === 'pause';
   const isRenewal = tpl.startsWith('renewal');
   const isAttend  = tpl === 'attendance';
+  const isSunday  = tpl === 'sunday';
   const isRemind  = tpl === 'reminder';
   const isNight      = tpl === 'night';
   const isNightHindi = tpl === 'night_hindi';
+  const isExtra   = tpl === 'extra_session';
 
   showEl('campRowsWrap',     isStd || isSimple);
   showEl('addCampBtn',       isStd);
@@ -69,8 +79,25 @@ function onTemplateChange() {
   showEl('nightWrap',        isNight,        true);
   showEl('nightHindiWrap',   isNightHindi,   true);
   showEl('attendWrap',       isAttend,       true);
-  showEl('paidTotalWrap',    isStd || isAttend || isRemind || isNight || isNightHindi);
-  showEl('paidYestWrap',     !isPause && !isRenewal);
+  showEl('sundayWrap',       isSunday,       true);
+  showEl('extraWrap',        isExtra,        true);
+  showEl('paidTotalWrap',    isStd || isAttend || isRemind || isNight || isNightHindi || isSunday);
+  showEl('paidYestWrap',     !isPause && !isRenewal && !isExtra);
+
+  if (isSunday) {
+    const el = document.getElementById('sundayTimeDisplay');
+    if (el) {
+      if (lastBcTime) {
+        const [hh, mm] = lastBcTime.split(':');
+        let h = parseInt(hh);
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        if (h > 12) h -= 12; else if (h === 0) h = 12;
+        el.textContent = `📅 Broadcast time: ${h}:${mm} ${ampm}`;
+      } else {
+        el.textContent = '⚠️ Stats card click karo (time auto-detect hoga)';
+      }
+    }
+  }
 
   if (isNightHindi) {
     const watiEl = document.getElementById('paidWati');
@@ -89,6 +116,19 @@ function showEl(id, visible, flex) {
   const el = document.getElementById(id);
   if (!el) return;
   el.style.display = visible ? (flex ? 'flex' : '') : 'none';
+}
+
+function onExtraTypeChange() {
+  const type = document.getElementById('extraSubType')?.value || 'water';
+  ['extraWaterWrap','extraEmailWrap','extraSEWrap'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  const show = type === 'water' ? 'extraWaterWrap' : type === 'email' ? 'extraEmailWrap' : 'extraSEWrap';
+  const el = document.getElementById(show);
+  if (el) el.style.display = 'flex';
+  updatePreview();
+  saveData();
 }
 
 // ── CAMPAIGN ROWS ─────────────────────────────
@@ -194,6 +234,8 @@ function clearTemplateFields(tpl) {
     ['renewX','renewXp1','renewXp2','renewXp3'].forEach(f => setVal(f, ''));
   } else if (tpl === 'attendance') {
     ['att1Sent','att1Exp','att2Sent','att2Exp','att3Sent','att3Exp'].forEach(f => setVal(f, ''));
+  } else if (tpl === 'sunday') {
+    ['sunAttSent','sunAttExp','sunMilSent','sunMilExp','sunHindiSent','sunHindiExp'].forEach(f => setVal(f, ''));
   } else if (tpl === 'reminder') {
     ['remYESent','remYEExp','remHindiSent','remHindiExp'].forEach(f => setVal(f, ''));
     setVal('remBatch', '1st');
@@ -203,6 +245,9 @@ function clearTemplateFields(tpl) {
   } else if (tpl === 'night_hindi') {
     ['nightHindiAbsentSent','nightHindiAbsentExp','nightHindiPresentSent','nightHindiPresentExp',
      'nightHindiSundaySent','nightHindiSundayExp'].forEach(f => setVal(f, ''));
+  } else if (tpl === 'extra_session') {
+    ['extraWaterSent','extraWaterYest','extraEmailSent','extraEmailExp','extraEmailYest',
+     'extraSESent'].forEach(f => setVal(f, ''));
   } else {
     paidCamps = [{name:'', sent:'', expected:'', wati:'all WATIs'}];
   }
@@ -257,17 +302,27 @@ function autoDetectTemplate(data) {
     const h = new Date().getHours();
     return h >= 21 ? 'renewal_plus' : 'renewal_minus';
   }
-  if (isPause)                                           return 'pause';
-  if (name.includes('hindi') && (name.includes('night') || name.includes('consolidate') || name.includes('combined')))
-                                                         return 'night_hindi';
-  if (name.includes('night') || name.includes('consolidate') || name.includes('combined') ||
-      (name.includes('sunday') && name.includes('attendance')))
-                                                         return 'night';
-  if (name.includes('attendance') || name.includes('milestone') || name.includes('tracker'))
-                                                         return 'attendance';
+  if (isPause) return 'pause';
+  // Sunday hourly attendance — check before night (night also matches sunday+attendance)
+  if (hint === 'sunday' || (name.includes('sunday') && (name.includes('attendance') || name.includes('tracker') || name.includes('milestone'))))
+    return 'sunday';
+  // hint takes precedence for night_hindi — campaign name of Hindi absent card has no 'hindi'
+  if (hint === 'night_hindi' || (name.includes('hindi') && (name.includes('night') || name.includes('consolidate') || name.includes('combined'))))
+    return 'night_hindi';
+  if (hint === 'night' || name.includes('night') || name.includes('consolidate') || name.includes('combined'))
+    return 'night';
+  if (name.includes('water'))
+    return 'extra_session';
+  if (name.includes('email') && name.includes('reminder'))
+    return 'extra_session';
+  if ((name.includes('_se') || name.includes('se_')) && name.includes('attendance'))
+    return 'extra_session';
+  if (hint === 'attendance' || name.includes('attendance') || name.includes('milestone') || name.includes('tracker'))
+    return 'attendance';
   if (name.includes('_se') || name.includes('se_') || name.includes('strong'))
-                                                         return 'simple';
-  if (name.includes('reminder'))                         return 'reminder';
+    return 'simple';
+  if (hint === 'reminder' || name.includes('reminder'))
+    return 'reminder';
   return null;
 }
 
@@ -297,6 +352,36 @@ function buildPaidMessage() {
     msg += `\n\nTotal : ${total}`;
     if (yest) msg += `\n${yestLabel} : ${yest}`;
     return msg;
+  }
+
+  if (tpl === 'extra_session') {
+    const sub = document.getElementById('extraSubType')?.value || 'water';
+    if (sub === 'water') {
+      const time = document.getElementById('extraWaterTime')?.value || '11:00 AM';
+      const watiW = document.getElementById('extraWaterWati')?.value || 'all paid WATIs';
+      const sent = parseInt(document.getElementById('extraWaterSent')?.value) || 0;
+      const yestW = document.getElementById('extraWaterYest')?.value || '';
+      let msg = `*UPDATE:* ✅\n*${time} Water reminder* sent to ${sent} users on ${watiW}`;
+      if (yestW) msg += `\nYesterday's Count : ${yestW}`;
+      return msg;
+    }
+    if (sub === 'email') {
+      const batch = document.getElementById('extraEmailBatch')?.value || '1st';
+      const sent  = parseInt(document.getElementById('extraEmailSent')?.value) || 0;
+      const exp   = parseInt(document.getElementById('extraEmailExp')?.value) || 0;
+      const diff  = exp > 0 ? Math.abs(exp - sent) : 0;
+      const yestE = document.getElementById('extraEmailYest')?.value || '';
+      let msg = `*UPDATE:* ✅\n${batch} Batch *Paid_YE_Email_Reminder* sent to ${sent} users.\nExpected: ${exp} Difference: ${diff}`;
+      if (yestE) msg += `\nYesterday's Count : ${yestE}`;
+      return msg;
+    }
+    if (sub === 'se') {
+      const batch = document.getElementById('extraSEBatch')?.value || '1st';
+      const sent  = parseInt(document.getElementById('extraSESent')?.value) || 0;
+      const watiS = document.getElementById('extraSEWati')?.value || 'wati 28';
+      return `*UPDATE :✅*\nPAID ${batch} BATCH Attendance tracker sent to ${sent} users on ${watiS}`;
+    }
+    return '— Extra Session type select karo —';
   }
 
   if (tpl === 'simple') {
@@ -352,6 +437,39 @@ function buildPaidMessage() {
       const diff = exp > 0 ? Math.abs(exp - sent) : '';
       msg += `\n\nPAID ${batch} BATCH ${s.name} sent to ${sent} users on ${s.w}.`;
       msg += `\nExpected: ${exp} Difference: ${diff !== '' ? diff : 0}`;
+      total += sent;
+    });
+    const el = document.getElementById('paidTotal');
+    if (el) el.value = total || '';
+    msg += `\n\nTotal count: ${total.toLocaleString()}`;
+    if (yest) msg += `\n${yestLabel}: ${yest}`;
+    return msg;
+  }
+
+  if (tpl === 'sunday') {
+    // Build "H PM" time label from lastBcTime
+    let timeLabel = '';
+    if (lastBcTime) {
+      const [hh, mm] = lastBcTime.split(':');
+      let h = parseInt(hh);
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      if (h > 12) h -= 12; else if (h === 0) h = 12;
+      timeLabel = `${h} ${ampm}`;
+    }
+    const slots = [
+      { name: 'Sunday Attendance tracker',       sId: 'sunAttSent',   eId: 'sunAttExp'   },
+      { name: 'Sunday Milestone tracker',        sId: 'sunMilSent',   eId: 'sunMilExp'   },
+      { name: 'Hindi Sunday Attendance tracker', sId: 'sunHindiSent', eId: 'sunHindiExp' },
+    ];
+    const rows = slots.filter(s => parseInt(val(s.sId)) > 0);
+    if (!rows.length) return '— Sunday Attendance counts bharo —';
+    let msg = `*UPDATE:*✅${timeLabel ? '*' + timeLabel + '*' : ''}`, total = 0;
+    rows.forEach(s => {
+      const sent = parseInt(val(s.sId)) || 0;
+      const exp  = parseInt(val(s.eId)) || 0;
+      const diff = exp > 0 ? Math.abs(exp - sent) : 0;
+      msg += `\n\n${s.name} sent to ${sent} users on all WATIs.`;
+      msg += `\nExpected: ${exp} Difference: ${diff}`;
       total += sent;
     });
     const el = document.getElementById('paidTotal');
@@ -441,9 +559,11 @@ function detectSubtype(campaignName, tpl) {
   if (tpl === 'renewal_minus' || tpl === 'renewal_plus') return 'renewal';
   if (tpl === 'pause')        return 'pause/unpause';
   if (tpl === 'attendance')   return 'attendance';
+  if (tpl === 'sunday')       return 'sunday';
   if (tpl === 'reminder')     return 'reminder';
   if (tpl === 'night' || tpl === 'night_hindi') return 'night';
   if (tpl === 'simple')       return 'strong';
+  if (tpl === 'extra_session') return 'extra';
   const n = (campaignName || '').toLowerCase();
   if (n.includes('reminder') && !n.includes('night'))                     return 'reminder';
   if (n.includes('_ye') || n.includes('ye_') || n.includes('yoga'))      return 'yoga';
@@ -512,8 +632,14 @@ async function copyAndSave() {
   try {
     const now   = new Date();
     const pad2  = n => String(n).padStart(2, '0');
-    const today = `${now.getFullYear()}-${pad2(now.getMonth()+1)}-${pad2(now.getDate())}`;
-    const time  = now.toTimeString().slice(0, 5);
+    const todayStr = `${now.getFullYear()}-${pad2(now.getMonth()+1)}-${pad2(now.getDate())}`;
+    // Use broadcast date from card if it's within last 3 days (not future, not too old)
+    const today = (() => {
+      if (!lastBcDate) return todayStr;
+      const diff = (now - new Date(lastBcDate)) / 86400000;
+      return diff >= 0 && diff < 3 ? lastBcDate : todayStr;
+    })();
+    const time  = lastBcTime || now.toTimeString().slice(0, 5);
     const entries = [];
 
     if (currentType === 'FREE') {
@@ -533,12 +659,47 @@ async function copyAndSave() {
           const e = parseInt(c.expected) || 0;
           entries.push({ msgname: c.name, sent: s, expected: e, diff: e - s });
         });
+      } else if (tpl === 'extra_session') {
+        const sub = document.getElementById('extraSubType')?.value || 'water';
+        if (sub === 'water') {
+          const time = document.getElementById('extraWaterTime')?.value || '11:00 AM';
+          const sent = parseInt(document.getElementById('extraWaterSent')?.value) || 0;
+          if (!sent) { showFeedback('Sent count bharo', 'error'); return; }
+          entries.push({ msgname: 'Water_Reminder_' + time.replace(/[\s:]/g, ''), sent, expected: 0, diff: 0, noSheet: true,
+            _extraType: 'water', _extraTime: time,
+            _extraWati: document.getElementById('extraWaterWati')?.value || '',
+            _extraYest: parseInt(document.getElementById('extraWaterYest')?.value) || 0 });
+        } else if (sub === 'email') {
+          const sent = parseInt(document.getElementById('extraEmailSent')?.value) || 0;
+          const exp  = parseInt(document.getElementById('extraEmailExp')?.value) || 0;
+          if (!sent) { showFeedback('Sent count bharo', 'error'); return; }
+          entries.push({ msgname: 'Paid_YE_Email_Reminder', sent, expected: exp, diff: exp - sent, noSheet: true,
+            _extraType: 'email',
+            _extraBatch: document.getElementById('extraEmailBatch')?.value || '',
+            _extraYest: parseInt(document.getElementById('extraEmailYest')?.value) || 0 });
+        } else if (sub === 'se') {
+          const sent = parseInt(document.getElementById('extraSESent')?.value) || 0;
+          if (!sent) { showFeedback('Sent count bharo', 'error'); return; }
+          entries.push({ msgname: 'Paid_SE_Attendance', sent, expected: 0, diff: 0, noSheet: true,
+            _extraType: 'se',
+            _extraBatch: document.getElementById('extraSEBatch')?.value || '',
+            _extraWati: document.getElementById('extraSEWati')?.value || '' });
+        }
       } else if (tpl === 'attendance') {
         const batch = val('attendBatch') || '1st';
         [
           { name: `${batch} BATCH Attendance tracker`,       s: 'att1Sent', e: 'att1Exp' },
           { name: `${batch} BATCH Milestone tracker`,        s: 'att2Sent', e: 'att2Exp' },
           { name: `${batch} BATCH Hindi Attendance tracker`, s: 'att3Sent', e: 'att3Exp' },
+        ].filter(r => parseInt(val(r.s)) > 0).forEach(r => {
+          const s = parseInt(val(r.s)) || 0, e = parseInt(val(r.e)) || 0;
+          entries.push({ msgname: r.name, sent: s, expected: e, diff: e - s });
+        });
+      } else if (tpl === 'sunday') {
+        [
+          { name: 'Sunday Attendance tracker',       s: 'sunAttSent',   e: 'sunAttExp'   },
+          { name: 'Sunday Milestone tracker',        s: 'sunMilSent',   e: 'sunMilExp'   },
+          { name: 'Hindi Sunday Attendance tracker', s: 'sunHindiSent', e: 'sunHindiExp' },
         ].filter(r => parseInt(val(r.s)) > 0).forEach(r => {
           const s = parseInt(val(r.s)) || 0, e = parseInt(val(r.e)) || 0;
           entries.push({ msgname: r.name, sent: s, expected: e, diff: e - s });
@@ -620,8 +781,14 @@ async function copyAndSave() {
       'PAID Hindi Combined Absent & Night Reminder':      'Paid_Hindi_Night_Absent_Reminder',
       'PAID Hindi Combined Present & Night Reminder':     'Paid_Hindi_Night_Present_Reminder',
       'Hindi Sunday Attendance Summary':                  'Paid_Hindi_Sunday_Attendance',
+      'Sunday Attendance tracker':                        'Paid_Sunday_Attendance_tracker',
+      'Sunday Milestone tracker':                         'Paid_Sunday_Milestone_tracker',
+      'Hindi Sunday Attendance tracker':                  'Paid_Hindi_Sunday_Attendance_tracker',
     };
     entries.forEach(e => { if (MSG_TO_SCHEDULER[e.msgname]) e.msgname = MSG_TO_SCHEDULER[e.msgname]; });
+    // Save sheet-safe msgname before BC matching overwrites it with scheduler name
+    // BC name (e.g. "Paid_Hindi_Night_Reminder_Sat") loses absent/present info needed by count-sheet.gs
+    entries.forEach(e => { e._sheetMsgname = e.msgname; });
 
     // Match each entry to a scheduled broadcast so dashboard scheduler auto-marks done
     const broadcasts   = data.broadcasts || [];
@@ -658,25 +825,39 @@ async function copyAndSave() {
       if (bc) {
         usedBcIds.add(bc.id);
         entry.msgname = bc.msgname;
+        // Always prefer actual Stats-click time over scheduled BC time
         entry._bcTime = lastBcTime || bc.time;
       } else if (isAttendanceEntry) {
-        // Fuzzy BC match for attendance — only grab scheduled time, keep original msgname
-        // Needed because entries like "1st BATCH Attendance tracker" don't match scheduler names exactly
-        const attBc = broadcasts
-          .filter(b => {
-            const bn = b.msgname.toLowerCase();
-            return b.category === entry.category &&
-              b.time &&
-              (bn.includes('attendance') || bn.includes('tracker')) &&
-              Math.abs(toMins(b.time) - curMins) <= 90;
-          })
-          .sort((a, b_) => Math.abs(toMins(a.time) - curMins) - Math.abs(toMins(b_.time) - curMins))[0];
-        if (attBc) entry._bcTime = attBc.time;
-        else if (lastBcTime) entry._bcTime = lastBcTime;
+        // Use actual Stats-click time; fall back to BC's scheduled time
+        entry._bcTime = lastBcTime || null;
       } else {
         if (lastBcTime && !entry._bcTime) entry._bcTime = lastBcTime;
       }
     });
+
+    // Duplicate check — warn if same msgname+date+time(±30min) already saved with different count
+    const dupes = entries.filter(entry => {
+      const entryTime = entry._bcTime || time;
+      const existing = records.find(r =>
+        r.date === today &&
+        r.msgname === entry.msgname &&
+        Math.abs(toMins(r.time) - toMins(entryTime)) <= 30
+      );
+      return existing && String(existing.sent) !== String(entry.sent);
+    });
+    if (dupes.length) {
+      const names = dupes.map(d => {
+        const entryTime = d._bcTime || time;
+        const old = records.find(r =>
+          r.date === today &&
+          r.msgname === d.msgname &&
+          Math.abs(toMins(r.time) - toMins(entryTime)) <= 30
+        );
+        return `• ${d.msgname}: ${old.sent} → ${d.sent}`;
+      }).join('\n');
+      const ok = confirm(`⚠️ Already saved today!\n\n${names}\n\nOverwrite karna hai?`);
+      if (!ok) { showFeedback('Save cancelled', 'info'); return; }
+    }
 
     entries.forEach(entry => {
       const recordTime = entry._bcTime || time;
@@ -714,14 +895,23 @@ async function copyAndSave() {
     const n = entries.length;
 
     showFeedback(`⏳ Firestore saved (${n})! Sheet update ho raha hai...`, 'info');
-    const sheetOk = await postToSheet(entries, today, time);
+    // pause/renewal have no count-sheet rows — skip silently so reset still fires
+    const tplNow2 = document.getElementById('paidTemplate')?.value || '';
+    const skipSheet = ['pause','renewal_minus','renewal_plus'].includes(tplNow2);
+    const sheetEntries = entries.filter(e => !e.noSheet);
+    const sheetOk = skipSheet ? true : await postToSheet(sheetEntries, today, time);
 
     if (!sheetOk) return; // sheet failed — show error, don't reset
 
+    // Post Extra Session entries to separate sheet (fire-and-forget, doesn't block reset)
+    const extraEntries = entries.filter(e => e.noSheet && e._extraType);
+    if (extraEntries.length) postExtraToSheet(extraEntries, today, time);
+
     // Countdown reset only after sheet confirms update
+    const rowsLabel = lastSheetRows ? ` → ${lastSheetRows}` : '';
     let secs = 10;
     const tick = () => {
-      showFeedback(`✅ Sheet updated! Reset in ${secs}s…`, 'success');
+      showFeedback(`✅ Sheet updated${rowsLabel} | Reset in ${secs}s…`, 'success');
       if (secs <= 0) { document.getElementById('reloadBtn').click(); return; }
       secs--;
       setTimeout(tick, 1000);
@@ -744,7 +934,7 @@ async function postToSheet(entries, date, fallbackTime) {
 
     const rawPayload = entries
       .filter(e => (parseInt(e.sent) || 0) > 0)
-      .map(e => ({ msgname: e.msgname, sent: e.sent, _bcTime: e._bcTime || null, date }));
+      .map(e => ({ msgname: e._sheetMsgname || e.msgname, sent: e.sent, _bcTime: e._bcTime || null, date }));
 
     const sharedTime = rawPayload.find(e => e._bcTime)?._bcTime || fallbackTime || null;
     const payload = rawPayload.map(e => ({ ...e, _bcTime: e._bcTime || sharedTime }));
@@ -763,14 +953,28 @@ async function postToSheet(entries, date, fallbackTime) {
       let parsed;
       try { parsed = JSON.parse(txt); } catch(_) { parsed = null; }
       if (parsed && parsed.ok) {
-        const ok  = (parsed.debug || []).filter(d => d.row).map(d => d.rowName).join(', ');
-        const bad = (parsed.debug || []).filter(d => d.skip).map(d => d.skip + ':' + (d.msgname||'') + (d.time12 ? '@' + d.time12 : '')).join(' | ');
-        const payInfo = payload.map(e => e.msgname.split(' ').pop() + '=' + e.sent).join(', ');
+        // If debug is missing/null/non-array/empty with 0 updated = old script or redirect issue.
+        // Re-send via no-cors which preserves the body through redirects.
+        if (!Array.isArray(parsed.debug) || (parsed.updated === 0 && parsed.debug.length === 0)) {
+          await fetch(url, {
+            method: 'POST', mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify({ entries: payload })
+          });
+          showFeedback('✅ Sheet sent!', 'success');
+          return true;
+        }
+        const ok  = parsed.debug.filter(d => d.row).map(d => d.rowName).join(', ');
+        lastSheetRows = ok;
+        const rowsEntry = parsed.debug.find(d => d.sheetRows);
+        const rowsHint  = rowsEntry ? ' | sheetRows:[' + rowsEntry.sheetRows.slice(0,8).join('|') + ']' : '';
+        const bad = parsed.debug.filter(d => d.skip).map(d => d.skip + ':' + (d.msgname||'') + (d.time12 ? '@' + d.time12 : '') + '[' + (d.cat||'') + ']').join(' | ');
         if (parsed.updated > 0) {
           showFeedback('✅ Sheet: ' + parsed.updated + ' updated → ' + ok, 'success');
           return true;
         } else {
-          showFeedback('⚠️ Sheet: 0 updated [' + payInfo + '] ' + (bad || '← redeploy script?'), 'error');
+          const dbg = bad || parsed.debug.map(d => JSON.stringify(d)).slice(0,3).join(' | ') || 'empty debug';
+          showFeedback('⚠️ Sheet: 0 — ' + dbg + rowsHint, 'error');
           return false;
         }
       } else {
@@ -788,6 +992,38 @@ async function postToSheet(entries, date, fallbackTime) {
       return true;
     }
   } catch(_) { return false; }
+}
+
+// ══════════════════════════════════════════════
+// EXTRA SESSION SHEET SYNC (fire-and-forget)
+// ══════════════════════════════════════════════
+async function postExtraToSheet(entries, date, fallbackTime) {
+  try {
+    const stored = await new Promise(r => chrome.storage.local.get(['extraSheetScriptUrl'], r));
+    const url = (stored.extraSheetScriptUrl || '').trim();
+    if (!url.startsWith('https://script.google.com/')) return;
+
+    const payload = entries.map(e => {
+      const base = { type: e._extraType, date, savedBy: adminName || '' };
+      if (e._extraType === 'water') {
+        return { ...base, time: e._extraTime || fallbackTime, sent: e.sent,
+          wati: e._extraWati || '', yesterday: e._extraYest || 0 };
+      } else if (e._extraType === 'email') {
+        return { ...base, time: fallbackTime, batch: e._extraBatch || '',
+          sent: e.sent, expected: e.expected, diff: e.diff, yesterday: e._extraYest || 0 };
+      } else {
+        return { ...base, time: fallbackTime, batch: e._extraBatch || '',
+          sent: e.sent, wati: e._extraWati || '' };
+      }
+    });
+
+    fetch(url, {
+      method: 'POST', mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ extraEntries: payload })
+    });
+    console.log('[ExtraSheet] sent:', JSON.stringify(payload));
+  } catch(_) {}
 }
 
 // ══════════════════════════════════════════════
@@ -855,6 +1091,7 @@ async function extractFromPage() {
 async function fillFields(data) {
   if (data.category) setType(data.category);
   if (data.bcTime) lastBcTime = data.bcTime;
+  if (data.bcDate) lastBcDate = data.bcDate;
 
   // Use broadcast time (bcTime) for yesterday lookup — extraction time (extractedAt) is wrong
   const timeStr = data.bcTime ||
@@ -901,6 +1138,7 @@ async function fillFields(data) {
       renderCampRows();
       updateTotal();
       // Yesterday count
+      saveData();
       if (data.yesterdayCount) {
         setVal('paidYestCount', data.yesterdayCount);
       } else if (data.campaignName) {
@@ -910,116 +1148,227 @@ async function fillFields(data) {
         else showFeedback('ℹ️ Yesterday nahi mila — manually dalo', 'info');
       }
     } else if (tpl === 'pause') {
-      // If pauseSent is already filled → go to unpause slot, else start from pause
-      if (!val('pauseSent') || !val('unpauseSent')) {
-        if (!val('pauseSent')) {
-          if (data.sentCount)     setVal('pauseSent',     data.sentCount);
+      const pauseFilled = id => filledSlots.has(id);
+      if (!pauseFilled('pauseSent') || !pauseFilled('unpauseSent')) {
+        if (!pauseFilled('pauseSent')) {
+          if (data.sentCount)     { setVal('pauseSent', data.sentCount); filledSlots.add('pauseSent'); }
           if (data.expectedCount) setVal('pauseExpected', data.expectedCount);
           showFeedback('✅ Pause slot fill hua!', 'success');
         } else {
-          if (data.sentCount)     setVal('unpauseSent',     data.sentCount);
+          if (data.sentCount)     { setVal('unpauseSent', data.sentCount); filledSlots.add('unpauseSent'); }
           if (data.expectedCount) setVal('unpauseExpected', data.expectedCount);
           showFeedback('✅ Unpause slot fill hua!', 'success');
         }
       } else {
-        // Both filled — fresh start from pause
-        setVal('pauseSent',       data.sentCount     || '');
-        setVal('pauseExpected',   data.expectedCount || '');
+        // Both filled — user explicitly re-extracts, start fresh
+        filledSlots.delete('pauseSent'); filledSlots.delete('unpauseSent');
+        if (data.sentCount)     { setVal('pauseSent', data.sentCount); filledSlots.add('pauseSent'); }
+        if (data.expectedCount) setVal('pauseExpected', data.expectedCount);
         setVal('unpauseSent',     '');
         setVal('unpauseExpected', '');
         showFeedback('✅ Pause slot fill hua (reset)!', 'success');
       }
+      saveData();
     } else if (tpl === 'renewal_minus') {
       const slots  = ['renewX1','renewX2','renewX3'];
       const labels = ['X-1','X-2','X-3'];
-      // Find first empty slot; if all filled → reset and start over
-      let idx = slots.findIndex(s => !val(s));
-      if (idx < 0) { slots.forEach(s => setVal(s, '')); idx = 0; }
+      let idx = slots.findIndex(s => !filledSlots.has(s) && !val(s));
+      if (idx < 0) { slots.forEach(s => { setVal(s, ''); filledSlots.delete(s); }); idx = 0; }
       if (data.sentCount) {
         setVal(slots[idx], data.sentCount);
+        filledSlots.add(slots[idx]);
+        saveData();
         showFeedback(`✅ ${labels[idx]} fill hua!`, 'success');
       }
     } else if (tpl === 'renewal_plus') {
       const slots  = ['renewX','renewXp1','renewXp2','renewXp3'];
       const labels = ['X','X+1','X+2','X+3'];
-      let idx = slots.findIndex(s => !val(s));
-      if (idx < 0) { slots.forEach(s => setVal(s, '')); idx = 0; }
+      let idx = slots.findIndex(s => !filledSlots.has(s) && !val(s));
+      if (idx < 0) { slots.forEach(s => { setVal(s, ''); filledSlots.delete(s); }); idx = 0; }
       if (data.sentCount) {
         setVal(slots[idx], data.sentCount);
+        filledSlots.add(slots[idx]);
+        saveData();
         showFeedback(`✅ ${labels[idx]} fill hua!`, 'success');
       }
     } else if (tpl === 'attendance') {
       const n = (data.campaignName || '').toLowerCase();
-      let sId, eId, label;
-      if (n.includes('milestone'))                              { sId='att2Sent'; eId='att2Exp'; label='Milestone'; }
-      else if (n.includes('hindi'))                             { sId='att3Sent'; eId='att3Exp'; label='Hindi Att'; }
-      else                                                      { sId='att1Sent'; eId='att1Exp'; label='Attendance'; }
-      if (data.sentCount)     setVal(sId, data.sentCount);
+      const attSlots = [
+        { sId:'att1Sent', eId:'att1Exp', label:'Attendance' },
+        { sId:'att2Sent', eId:'att2Exp', label:'Milestone'  },
+        { sId:'att3Sent', eId:'att3Exp', label:'Hindi Att'  },
+      ];
+      const preferred = n.includes('milestone') ? attSlots[1]
+                      : n.includes('hindi')      ? attSlots[2]
+                      : attSlots[0];
+      const attFilled = s => filledSlots.has(s.sId);
+      const attSlot = (!attFilled(preferred)) ? preferred
+                    : (attSlots.find(s => !attFilled(s)) || preferred);
+      const { sId, eId, label } = attSlot;
+      if (data.sentCount)     { setVal(sId, data.sentCount); filledSlots.add(sId); }
       if (data.expectedCount) setVal(eId, data.expectedCount);
+      saveData(); // save slot immediately — popup may close during the await below
       showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
       const yestAtt = await fetchYesterdayTotal('attendance', timeStr);
       if (yestAtt !== null) { setVal('paidYestCount', String(yestAtt)); showFeedback(`✅ ${label} slot fill hua!`, 'success'); }
       else showFeedback(`✅ ${label} slot fill hua! (Yesterday manually dalo)`, 'info');
     } else if (tpl === 'reminder') {
       const n = (data.campaignName || '').toLowerCase();
-      let sId, eId, label;
-      if (n.includes('hindi'))  { sId='remHindiSent'; eId='remHindiExp'; label='Hindi Reminder'; }
-      else                      { sId='remYESent';    eId='remYEExp';    label='YE Reminder'; }
-      if (data.sentCount)     setVal(sId, data.sentCount);
+      const remSlots = [
+        { sId:'remYESent',    eId:'remYEExp',    label:'YE Reminder'    },
+        { sId:'remHindiSent', eId:'remHindiExp', label:'Hindi Reminder' },
+      ];
+      const preferred = n.includes('hindi') ? remSlots[1] : remSlots[0];
+      const remFilled = s => filledSlots.has(s.sId);
+      const remSlot = (!remFilled(preferred)) ? preferred
+                    : (remSlots.find(s => !remFilled(s)) || preferred);
+      const { sId, eId, label } = remSlot;
+      if (data.sentCount)     { setVal(sId, data.sentCount); filledSlots.add(sId); }
       if (data.expectedCount) setVal(eId, data.expectedCount);
+      saveData(); // save slot immediately — popup may close during the await below
       showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
       const yestRem = await fetchYesterdayTotal('reminder', timeStr);
       if (yestRem !== null) { setVal('paidYestCount', String(yestRem)); showFeedback(`✅ ${label} slot fill hua!`, 'success'); }
       else showFeedback(`✅ ${label} slot fill hua! (Yesterday manually dalo)`, 'info');
     } else if (tpl === 'night') {
-      const n = (data.campaignName || '').toLowerCase();
+      const typeStr = (data.broadcastType || data.campaignName || '').toLowerCase();
       const slots = [
         { sId:'nightAbsentSent',  eId:'nightAbsentExp',  label:'Absent'  },
         { sId:'nightPresentSent', eId:'nightPresentExp', label:'Present' },
         { sId:'nightSundaySent',  eId:'nightSundayExp',  label:'Sunday'  },
       ];
-      let slot = n.includes('sunday') ? slots[2]
-               : n.includes('absent') ? slots[0]
-               : n.includes('present') ? slots[1]
-               : (slots.find(s => !val(s.sId)) || slots[0]);
-      if (data.sentCount)     setVal(slot.sId, data.sentCount);
+      // absent-before-present fallback when card text spans both cards
+      const preferred = typeStr.includes('sunday') ? slots[2]
+                      : typeStr.includes('absent')  ? slots[0]
+                      : typeStr.includes('present') ? slots[1]
+                      : null;
+      // filledSlots is the authoritative guard — cleared only by Reload or Copy&Save
+      const isFilled = s => filledSlots.has(s.sId);
+      const slot = (preferred && !isFilled(preferred))
+                 ? preferred
+                 : (slots.find(s => !isFilled(s)) || preferred || slots[0]);
+      if (data.sentCount)     { setVal(slot.sId, data.sentCount); filledSlots.add(slot.sId); }
       if (data.expectedCount) setVal(slot.eId, data.expectedCount);
+      saveData(); // save slot immediately — popup may close during the await below
       showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
       const yestNight = await fetchYesterdayTotal('night', timeStr, false);
       if (yestNight !== null) { setVal('paidYestCount', String(yestNight)); showFeedback(`✅ Night ${slot.label} slot fill hua!`, 'success'); }
       else showFeedback(`✅ Night ${slot.label} slot fill hua! (Yesterday manually dalo)`, 'info');
     } else if (tpl === 'night_hindi') {
-      const n = (data.campaignName || '').toLowerCase();
+      const typeStr = (data.broadcastType || data.campaignName || '').toLowerCase();
       const slots = [
         { sId:'nightHindiAbsentSent',  eId:'nightHindiAbsentExp',  label:'Hindi Absent'  },
         { sId:'nightHindiPresentSent', eId:'nightHindiPresentExp', label:'Hindi Present' },
         { sId:'nightHindiSundaySent',  eId:'nightHindiSundayExp',  label:'Hindi Sunday'  },
       ];
-      let slot = n.includes('sunday') ? slots[2]
-               : n.includes('absent') ? slots[0]
-               : n.includes('present') ? slots[1]
-               : (slots.find(s => !val(s.sId)) || slots[0]);
-      if (data.sentCount)     setVal(slot.sId, data.sentCount);
+      const preferred = typeStr.includes('sunday') ? slots[2]
+                      : typeStr.includes('absent')  ? slots[0]
+                      : typeStr.includes('present') ? slots[1]
+                      : null;
+      const isFilled = s => filledSlots.has(s.sId);
+      const slot = (preferred && !isFilled(preferred))
+                 ? preferred
+                 : (slots.find(s => !isFilled(s)) || preferred || slots[0]);
+      if (data.sentCount)     { setVal(slot.sId, data.sentCount); filledSlots.add(slot.sId); }
       if (data.expectedCount) setVal(slot.eId, data.expectedCount);
+      saveData(); // save slot immediately — popup may close during the await below
       showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
       const yestNightH = await fetchYesterdayTotal('night', timeStr, true);
       if (yestNightH !== null) { setVal('paidYestCount', String(yestNightH)); showFeedback(`✅ Night ${slot.label} slot fill hua!`, 'success'); }
       else showFeedback(`✅ Night ${slot.label} slot fill hua! (Yesterday manually dalo)`, 'info');
+    } else if (tpl === 'sunday') {
+      const n = (data.campaignName || '').toLowerCase();
+      const sunSlots = [
+        { sId:'sunAttSent',   eId:'sunAttExp',   label:'Sunday Att'        },
+        { sId:'sunMilSent',   eId:'sunMilExp',   label:'Sunday Milestone'  },
+        { sId:'sunHindiSent', eId:'sunHindiExp', label:'Hindi Sunday Att'  },
+      ];
+      const preferred = n.includes('milestone') ? sunSlots[1]
+                      : n.includes('hindi')      ? sunSlots[2]
+                      : sunSlots[0];
+      const isFilled = s => filledSlots.has(s.sId);
+      const sunSlot = (!isFilled(preferred)) ? preferred
+                    : (sunSlots.find(s => !isFilled(s)) || preferred);
+      if (data.sentCount)     { setVal(sunSlot.sId, data.sentCount); filledSlots.add(sunSlot.sId); }
+      if (data.expectedCount) setVal(sunSlot.eId, data.expectedCount);
+      // Update time display
+      if (lastBcTime) {
+        const el = document.getElementById('sundayTimeDisplay');
+        if (el) {
+          const [hh, mm] = lastBcTime.split(':');
+          let h = parseInt(hh);
+          const ampm = h >= 12 ? 'PM' : 'AM';
+          if (h > 12) h -= 12; else if (h === 0) h = 12;
+          el.textContent = `📅 Broadcast time: ${h}:${mm} ${ampm}`;
+        }
+      }
+      saveData();
+      showFeedback(`✅ ${sunSlot.label} slot fill hua!`, 'success');
+    } else if (tpl === 'extra_session') {
+      const n = (data.campaignName || '').toLowerCase();
+      const sub = n.includes('water') ? 'water'
+                : (n.includes('email') || n.includes('mail')) ? 'email'
+                : 'se';
+      setVal('extraSubType', sub);
+      onExtraTypeChange();
+
+      if (sub === 'water') {
+        // Auto-select closest time slot from broadcast time
+        const waterSlots = [
+          { val: '11:00 AM', mins: 660  },
+          { val: '02:00 PM', mins: 840  },
+          { val: '05:00 PM', mins: 1020 },
+          { val: '08:15 PM', mins: 1215 },
+        ];
+        const bcTime = data.bcTime || lastBcTime;
+        if (bcTime) {
+          const [hh, mm] = bcTime.split(':').map(Number);
+          const bcMins = hh * 60 + mm;
+          const closest = waterSlots.reduce((a, b) =>
+            Math.abs(a.mins - bcMins) < Math.abs(b.mins - bcMins) ? a : b
+          );
+          setVal('extraWaterTime', closest.val);
+        }
+        if (data.sentCount) { setVal('extraWaterSent', data.sentCount); filledSlots.add('extraWaterSent'); }
+        saveData();
+        showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
+        const yestW = await fetchYesterdayCount(data.campaignName, timeStr);
+        if (yestW !== null) { setVal('extraWaterYest', String(yestW)); showFeedback('✅ Water Reminder slot fill hua!', 'success'); }
+        else showFeedback('✅ Water Reminder fill hua! (Yesterday manually dalo)', 'info');
+      } else if (sub === 'email') {
+        const emailSent = data.triggeredCount || data.sentCount;
+        if (emailSent)          { setVal('extraEmailSent', emailSent); filledSlots.add('extraEmailSent'); }
+        if (data.expectedCount) setVal('extraEmailExp', data.expectedCount);
+        saveData();
+        showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
+        const yestE = await fetchYesterdayCount('Paid_YE_Email_Reminder', timeStr);
+        if (yestE !== null) { setVal('extraEmailYest', String(yestE)); showFeedback('✅ Email Reminder slot fill hua!', 'success'); }
+        else showFeedback('✅ Email Reminder fill hua! (Yesterday manually dalo)', 'info');
+      } else {
+        if (data.sentCount) { setVal('extraSESent', data.sentCount); filledSlots.add('extraSESent'); }
+        saveData();
+        showFeedback('✅ SE Attendance slot fill hua!', 'success');
+      }
+      updatePreview();
     }
   }
 
+  saveData(); // persist slot values so redirect works if popup is reopened before next slot click
   document.getElementById('preview').dataset.userEdited = 'false';
   updatePreview();
 }
 
 // ── MONDAY → SATURDAY, else YESTERDAY ────────
+// Uses lastBcDate as base when set — prevents fetching same-day records when
+// broadcast date equals today-1 (e.g. processing May 2 broadcast on May 3)
 function getPrevDate() {
-  const d = new Date();
-  d.setDate(d.getDate() - (d.getDay() === 1 ? 2 : 1));
-  return d.toISOString().slice(0, 10);
+  const base = lastBcDate ? new Date(lastBcDate + 'T12:00:00') : new Date();
+  base.setDate(base.getDate() - (base.getDay() === 1 ? 2 : 1));
+  return base.toISOString().slice(0, 10);
 }
 function getPrevLabel() {
-  return new Date().getDay() === 1 ? "Saturday's Count" : "Yesterday's Count";
+  const base = lastBcDate ? new Date(lastBcDate + 'T12:00:00') : new Date();
+  return base.getDay() === 1 ? "Saturday's Count" : "Yesterday's Count";
 }
 
 // ── COUNT SHEET CSV FALLBACK ──────────────────────────────────────────────
@@ -1074,8 +1423,10 @@ function showMismatchPopup(fsVal, csVal) {
   });
 }
 
-// Fetch yesterday count from count sheet by time match (±10 min)
-async function fetchCountSheetYesterday(currentTimeStr) {
+// Fetch yesterday count from count sheet by time match
+// sumAll=true: sum ALL rows within ±30 min (use for night = present+absent)
+// sumAll=false: return single closest row within ±10 min (default)
+async function fetchCountSheetYesterday(currentTimeStr, sumAll = false) {
   try {
     const yDate = getPrevDate();
     const toMins = t => { if (!t) return -1; const [h,m] = t.split(':').map(Number); return h*60+(m||0); };
@@ -1088,14 +1439,27 @@ async function fetchCountSheetYesterday(currentTimeStr) {
     const lines = text.split('\n');
     const hdr = _parseCSVLine(lines[1] || '');
 
-    // Find column for yesterday's date
     let yCol = -1;
     for (let c = 5; c < hdr.length; c++) {
       if (_parseDateHdr(hdr[c].trim().replace(/"/g,'')) === yDate) { yCol = c; break; }
     }
     if (yCol < 0) return null;
 
-    // Find row with best time match
+    if (sumAll) {
+      // Sum all rows within ±30 min (night present + absent)
+      let total = 0;
+      for (let i = 2; i < lines.length; i++) {
+        const f = _parseCSVLine(lines[i]);
+        if (!f[0] || !f[0].trim()) continue;
+        const rowMins = _csSheetTimeMins((f[1]||'').trim());
+        if (rowMins < 0 || Math.abs(rowMins - curMins) > 30) continue;
+        const v = parseInt((f[yCol]||'').replace(/[^0-9]/g,''));
+        if (v > 0) total += v;
+      }
+      return total > 0 ? total : null;
+    }
+
+    // Single best match within ±10 min
     let best = null, bestDiff = 11;
     for (let i = 2; i < lines.length; i++) {
       const f = _parseCSVLine(lines[i]);
@@ -1142,7 +1506,15 @@ async function fetchYesterdayTotal(subtype, currentTimeStr, hindiOnly = null) {
     }
   } catch(e) {}
 
-  const csVal = await fetchCountSheetYesterday(currentTimeStr);
+  // CS fallback: Hindi night has no sheet rows → skip; non-Hindi night → sum present+absent
+  let csVal = null;
+  if (subtype === 'night' && hindiOnly === true) {
+    csVal = null; // no Hindi night rows in count sheet
+  } else if (subtype === 'night') {
+    csVal = await fetchCountSheetYesterday(currentTimeStr, true); // sum all ±30 min rows
+  } else {
+    csVal = await fetchCountSheetYesterday(currentTimeStr);
+  }
 
   if (fsVal !== null && csVal !== null && fsVal !== csVal) return await showMismatchPopup(fsVal, csVal);
   return fsVal ?? csVal;
@@ -1346,12 +1718,17 @@ function saveData() {
     if (el) data[f] = el.value;
   });
   data.paidCamps = paidCamps;
+  if (lastBcDate) data.lastBcDate = lastBcDate;
+  if (lastBcTime) data.lastBcTime = lastBcTime;
+  data.savedDate    = new Date().toISOString().slice(0, 10);
+  data.filledSlotsArr = [...filledSlots]; // exact session fills — used on reload to avoid stale slot confusion
   chrome.storage.local.set({ formData: data });
 }
 
 function loadSavedData() {
-  chrome.storage.local.get(['formData', 'darkMode', 'autoExtracted', 'sheetScriptUrl', 'adminName'], r => {
+  chrome.storage.local.get(['formData', 'darkMode', 'autoExtracted', 'sheetScriptUrl', 'adminName', 'extraSheetScriptUrl'], r => {
     if (r.sheetScriptUrl) setVal('sheetScriptUrl', r.sheetScriptUrl);
+    if (r.extraSheetScriptUrl) setVal('extraSheetScriptUrl', r.extraSheetScriptUrl);
     if (r.adminName) { adminName = r.adminName; setVal('adminNameInput', r.adminName); }
     if (r.darkMode) {
       document.body.classList.add('dark');
@@ -1371,6 +1748,46 @@ function loadSavedData() {
         if (d[f] !== undefined) { const el = document.getElementById(f); if (el) el.value = d[f]; }
       });
       if (d.paidCamps && d.paidCamps.length) paidCamps = d.paidCamps;
+      if (d.lastBcDate) lastBcDate = d.lastBcDate;
+      if (d.lastBcTime) lastBcTime = d.lastBcTime;
+
+      const todayStr = new Date().toISOString().slice(0, 10);
+      if (!d.savedDate || d.savedDate !== todayStr) {
+        // New day — wipe secondary stale slots; keep att1 + lastBcDate/lastBcTime for deferred Copy&Save
+        ['att2Sent','att2Exp','att3Sent','att3Exp',
+         'remYESent','remYEExp','remHindiSent','remHindiExp',
+         'nightAbsentSent','nightAbsentExp','nightPresentSent','nightPresentExp',
+         'nightSundaySent','nightSundayExp',
+         'nightHindiAbsentSent','nightHindiAbsentExp',
+         'nightHindiPresentSent','nightHindiPresentExp',
+         'nightHindiSundaySent','nightHindiSundayExp',
+         'pauseSent','pauseExpected','unpauseSent','unpauseExpected',
+         'renewX1','renewX2','renewX3','renewX','renewXp1','renewXp2','renewXp3',
+         'paidYestCount',
+        ].forEach(id => setVal(id, ''));
+        // lastBcDate/lastBcTime kept so deferred Copy&Save still hits the right sheet column
+        // filledSlots stays empty — stale data must not lock new slots
+      } else {
+        // Same day — restore exact session fills from saved array
+        if (d.filledSlotsArr) {
+          d.filledSlotsArr.forEach(id => filledSlots.add(id));
+        } else {
+          // Migration (no filledSlotsArr yet): rebuild all except att2/att3 which are stale-prone
+          ['nightAbsentSent','nightPresentSent','nightSundaySent',
+           'nightHindiAbsentSent','nightHindiPresentSent','nightHindiSundaySent',
+           'remYESent','remHindiSent',
+           'pauseSent','unpauseSent',
+           'renewX1','renewX2','renewX3','renewX','renewXp1','renewXp2','renewXp3',
+          ].forEach(id => { if (d[id]) filledSlots.add(id); });
+          if (d['att1Sent']) filledSlots.add('att1Sent'); // att1 ok — primary slot filled today
+          // att2Sent and att3Sent intentionally NOT rebuilt — these carry stale cross-day values
+        }
+        // Clear attendance slots not in filledSlots — wipes stale storage values
+        ['att1Sent','att1Exp','att2Sent','att2Exp','att3Sent','att3Exp'].forEach(id => {
+          const sentId = id.endsWith('Exp') ? id.slice(0,-3)+'Sent' : id;
+          if (!filledSlots.has(sentId)) setVal(id, '');
+        });
+      }
     }
     // Render everything correctly
     onTemplateChange();
@@ -1419,12 +1836,69 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('tab-scan').addEventListener('click', () => switchTab('scan'));
   document.getElementById('tab-settings').addEventListener('click', () => switchTab('settings'));
 
+  // Admin lock/unlock for sheet URL
+  let _adminUnlocked = false;
+  const _urlInput  = document.getElementById('sheetScriptUrl');
+  const _lockBtn   = document.getElementById('adminLockBtn');
+  const _pinRow    = document.getElementById('adminPinRow');
+  const _pinInput  = document.getElementById('adminPinInput');
+  const _urlNote   = document.getElementById('sheetUrlNote');
+
+  function _lockSheetUrl() {
+    _adminUnlocked = false;
+    _urlInput.readOnly = true;
+    _urlInput.style.background = 'var(--light)';
+    _urlInput.style.color = 'var(--muted)';
+    _lockBtn.textContent = '🔒 Admin';
+    _pinRow.style.display = 'none';
+    _urlNote.textContent = '🔒 Admin se PIN lo URL change karne ke liye';
+  }
+  function _unlockSheetUrl() {
+    _adminUnlocked = true;
+    _urlInput.readOnly = false;
+    _urlInput.style.background = '';
+    _urlInput.style.color = '';
+    _lockBtn.textContent = '🔓 Lock';
+    _pinRow.style.display = 'none';
+    _urlNote.textContent = '✅ Unlocked — URL edit kar sakte ho';
+  }
+
+  _lockBtn.addEventListener('click', () => {
+    if (_adminUnlocked) { _lockSheetUrl(); return; }
+    _pinRow.style.display = _pinRow.style.display === 'flex' ? 'none' : 'flex';
+    if (_pinRow.style.display === 'flex') _pinInput.focus();
+  });
+
+  async function _checkPin() {
+    const entered = _pinInput.value;
+    if (!entered) return;
+    const stored = await new Promise(r => chrome.storage.local.get(['adminPin'], r));
+    if (!stored.adminPin) {
+      // First time — set the PIN
+      chrome.storage.local.set({ adminPin: entered });
+      _unlockSheetUrl();
+      _pinInput.value = '';
+    } else if (entered === stored.adminPin) {
+      _unlockSheetUrl();
+      _pinInput.value = '';
+    } else {
+      _pinInput.style.borderColor = '#ef4444';
+      setTimeout(() => { _pinInput.style.borderColor = ''; }, 1000);
+      _pinInput.value = '';
+      _pinInput.focus();
+    }
+  }
+  document.getElementById('adminPinConfirmBtn').addEventListener('click', _checkPin);
+  _pinInput.addEventListener('keydown', e => { if (e.key === 'Enter') _checkPin(); });
+
   // Settings
   document.getElementById('saveSettingsBtn').addEventListener('click', () => {
-    const url  = document.getElementById('sheetScriptUrl').value.trim();
     const name = (document.getElementById('adminNameInput')?.value || '').trim();
     adminName = name;
-    chrome.storage.local.set({ sheetScriptUrl: url, adminName: name }, () => {
+    const saveObj = { adminName: name };
+    if (_adminUnlocked) saveObj.sheetScriptUrl = _urlInput.value.trim();
+    saveObj.extraSheetScriptUrl = (document.getElementById('extraSheetScriptUrl')?.value || '').trim();
+    chrome.storage.local.set(saveObj, () => {
       const fb = document.getElementById('settingsFeedback');
       fb.textContent = '✅ Saved!'; fb.className = 'feedback success';
       setTimeout(() => { fb.textContent = ''; fb.className = 'feedback'; }, 2000);
@@ -1533,7 +2007,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('darkBtn').addEventListener('click', toggleDark);
   document.getElementById('reloadBtn').addEventListener('click', async () => {
     // Reset all template fields for every template type
-    ['pause','renewal_minus','renewal_plus','attendance','reminder','night','night_hindi'].forEach(t => clearTemplateFields(t));
+    ['pause','renewal_minus','renewal_plus','attendance','reminder','night','night_hindi','extra_session'].forEach(t => clearTemplateFields(t));
     paidCamps = [{ name: '', sent: '', expected: '', wati: 'all WATIs' }];
     // Reset dropdowns to defaults
     const tplEl   = document.getElementById('paidTemplate');
@@ -1550,6 +2024,8 @@ document.addEventListener('DOMContentLoaded', () => {
     setVal('paidYestCount', '');
     renderCampRows(); updateTotal(); onTemplateChange();
     lastBcTime = null;
+    lastBcDate = null;
+    filledSlots.clear();
     await chrome.storage.local.remove('autoExtracted');
     updatePreview();
     showFeedback('✅ Cleared!', 'success');
@@ -1580,11 +2056,15 @@ document.addEventListener('DOMContentLoaded', () => {
    'nightHindiAbsentSent','nightHindiAbsentExp','nightHindiPresentSent','nightHindiPresentExp',
    'nightHindiSundaySent','nightHindiSundayExp',
    'att1Sent','att1Exp','att2Sent','att2Exp','att3Sent','att3Exp',
-   'paidYestCount','simpleTimePrefix','simpleNote'].forEach(id => {
+   'sunAttSent','sunAttExp','sunMilSent','sunMilExp','sunHindiSent','sunHindiExp',
+   'paidYestCount','simpleTimePrefix','simpleNote',
+   'extraWaterSent','extraWaterYest','extraEmailSent','extraEmailExp','extraEmailYest',
+   'extraSESent'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', () => { updatePreview(); saveData(); });
   });
-  ['attendBatch','att3Wati','remBatch'].forEach(id => {
+  ['attendBatch','att3Wati','remBatch',
+   'extraWaterTime','extraWaterWati','extraEmailBatch','extraSEBatch','extraSEWati'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', () => { updatePreview(); saveData(); });
   });
@@ -1601,4 +2081,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Initial render
   loadSavedData();
+
+  // Auto-fill when content.js extracts counts after Stats click
+  // Only fires when sentCount is ready (second storage write after waitForStats resolves)
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes.autoExtracted) return;
+    const newVal = changes.autoExtracted.newValue;
+    if (!newVal || !newVal.sentCount) return; // skip initial Stats-click write (no counts yet)
+    const age = Date.now() - (newVal.extractedAt || 0);
+    if (age > 120000) return; // ignore stale data (> 2 min old)
+    fillFields(newVal);
+    const msg = document.getElementById('autoMsg');
+    if (msg) { msg.textContent = '✅ Auto-extracted values from Stats!'; msg.style.display = 'block'; }
+  });
 });

@@ -88,9 +88,11 @@
           <option value="night">Night Update</option>
           <option value="night_hindi">Night Hindi</option>
           <option value="attendance">Attendance</option>
+          <option value="sunday">Sunday Attendance</option>
           <option value="pause">Pause / Unpause</option>
           <option value="renewal_minus">Renewal X-1/X-2/X-3</option>
           <option value="renewal_plus">Renewal X/X+1/X+2/X+3</option>
+          <option value="extra_session">Extra Session</option>
         </select>
       </div>
       <div class="field">
@@ -287,6 +289,114 @@
       </div>
     </div>
 
+    <!-- Sunday Attendance -->
+    <div id="sundayWrap" style="display:none;flex-direction:column;gap:8px">
+      <div id="sundayTimeDisplay" style="font-size:12px;color:var(--muted);text-align:center;padding:4px 0"></div>
+      <div class="camp-row">
+        <div class="camp-row-hdr"><span>Sunday Attendance Tracker</span></div>
+        <div class="row2" style="margin-top:6px">
+          <div class="field"><label>Sent</label><input type="number" id="sunAttSent" placeholder="0"></div>
+          <div class="field"><label>Expected</label><input type="number" id="sunAttExp" placeholder="0"></div>
+        </div>
+      </div>
+      <div class="camp-row">
+        <div class="camp-row-hdr"><span>Sunday Milestone Tracker</span></div>
+        <div class="row2" style="margin-top:6px">
+          <div class="field"><label>Sent</label><input type="number" id="sunMilSent" placeholder="0"></div>
+          <div class="field"><label>Expected</label><input type="number" id="sunMilExp" placeholder="0"></div>
+        </div>
+      </div>
+      <div class="camp-row">
+        <div class="camp-row-hdr"><span>Hindi Sunday Attendance Tracker</span></div>
+        <div class="row2" style="margin-top:6px">
+          <div class="field"><label>Sent</label><input type="number" id="sunHindiSent" placeholder="0"></div>
+          <div class="field"><label>Expected</label><input type="number" id="sunHindiExp" placeholder="0"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Extra Session -->
+    <div id="extraWrap" style="display:none;flex-direction:column;gap:8px">
+      <div class="field">
+        <label>Type</label>
+        <select id="extraSubType" onchange="onExtraTypeChange()">
+          <option value="water">Water Reminder</option>
+          <option value="email">Email Reminder</option>
+          <option value="se">SE Attendance</option>
+        </select>
+      </div>
+      <!-- Water Reminder -->
+      <div id="extraWaterWrap" style="display:flex;flex-direction:column;gap:8px">
+        <div class="row2">
+          <div class="field">
+            <label>Time</label>
+            <select id="extraWaterTime" onchange="updatePreview();saveData()">
+              <option value="11:00 AM">11:00 AM</option>
+              <option value="02:00 PM">02:00 PM</option>
+              <option value="05:00 PM" selected>05:00 PM</option>
+              <option value="08:15 PM">08:15 PM</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>WATI</label>
+            <select id="extraWaterWati" onchange="updatePreview();saveData()">
+              <option value="all paid WATIs">all paid WATIs</option>
+              <option value="all paid WATIs except 28" selected>all paid WATIs except 28</option>
+            </select>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Sent</label><input type="number" id="extraWaterSent" placeholder="0"></div>
+          <div class="field"><label>Yesterday's Count</label><input type="number" id="extraWaterYest" placeholder="0"></div>
+        </div>
+      </div>
+      <!-- Email Reminder -->
+      <div id="extraEmailWrap" style="display:none;flex-direction:column;gap:8px">
+        <div class="field">
+          <label>Batch</label>
+          <select id="extraEmailBatch" onchange="updatePreview();saveData()">
+            <option value="1st">1st</option>
+            <option value="2nd">2nd</option>
+            <option value="3rd">3rd</option>
+          </select>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Sent</label><input type="number" id="extraEmailSent" placeholder="0"></div>
+          <div class="field"><label>Expected</label><input type="number" id="extraEmailExp" placeholder="0"></div>
+        </div>
+        <div class="field">
+          <label>Yesterday's Count</label>
+          <input type="number" id="extraEmailYest" placeholder="0">
+        </div>
+      </div>
+      <!-- SE Attendance -->
+      <div id="extraSEWrap" style="display:none;flex-direction:column;gap:8px">
+        <div class="row2">
+          <div class="field">
+            <label>Batch</label>
+            <select id="extraSEBatch" onchange="updatePreview();saveData()">
+              <option value="1st">1st</option>
+              <option value="2nd">2nd</option>
+              <option value="3rd">3rd</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>WATI</label>
+            <select id="extraSEWati" onchange="updatePreview();saveData()">
+              <option value="wati 28" selected>Wati 28</option>
+              <option value="WATI 29">WATI 29</option>
+              <option value="all paid WATIs">all paid WATIs</option>
+              <option value="Wati 11">Wati 11</option>
+              <option value="Wati 14">Wati 14</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field"><label>Sent</label><input type="number" id="extraSESent" placeholder="0"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- Total (standard only, auto-calc) -->
     <div id="paidTotalWrap" class="field">
       <label>Total (auto-calculated)</label>
@@ -344,9 +454,21 @@
     <input type="text" id="adminNameInput" placeholder="e.g. Shoyeb" style="font-size:.85rem">
   </div>
   <div class="field" style="margin-bottom:10px">
-    <label>Google Sheet Script URL</label>
-    <input type="url" id="sheetScriptUrl" placeholder="https://script.google.com/macros/s/.../exec" style="font-size:.72rem">
-    <span style="font-size:.68rem;color:var(--muted);margin-top:3px;display:block">Count Sheet mein auto-save ke liye Apps Script URL</span>
+    <label style="display:flex;align-items:center;justify-content:space-between">
+      <span>Google Sheet Script URL</span>
+      <button id="adminLockBtn" style="background:none;border:1px solid var(--border);border-radius:6px;padding:2px 8px;font-size:.7rem;cursor:pointer;color:var(--muted)">🔒 Admin</button>
+    </label>
+    <input type="url" id="sheetScriptUrl" placeholder="https://script.google.com/macros/s/.../exec" style="font-size:.72rem;background:var(--light);color:var(--muted)" readonly>
+    <div id="adminPinRow" style="display:none;margin-top:5px;display:none;gap:5px;align-items:center">
+      <input type="password" id="adminPinInput" placeholder="Admin PIN" style="flex:1;padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:.75rem;outline:none;min-width:0">
+      <button id="adminPinConfirmBtn" style="padding:5px 10px;border:none;border-radius:6px;background:#6366f1;color:#fff;font-size:.75rem;cursor:pointer;white-space:nowrap">Confirm</button>
+    </div>
+    <span id="sheetUrlNote" style="font-size:.68rem;color:var(--muted);margin-top:3px;display:block">🔒 Admin se PIN lo URL change karne ke liye</span>
+  </div>
+  <div class="field" style="margin-bottom:10px">
+    <label>Extra Sessions Sheet Script URL</label>
+    <input type="url" id="extraSheetScriptUrl" placeholder="https://script.google.com/macros/s/.../exec" style="font-size:.72rem">
+    <span style="font-size:.68rem;color:var(--muted);margin-top:3px;display:block">Water / Email / SE records ke liye alag sheet URL</span>
   </div>
   <div class="btn-row">
     <button id="saveSettingsBtn" class="btn-copy" style="background:#6366f1;color:#fff">💾 Save</button>
