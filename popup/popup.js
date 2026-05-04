@@ -903,9 +903,9 @@ async function copyAndSave() {
 
     if (!sheetOk) return; // sheet failed — show error, don't reset
 
-    // Post Extra Session entries to separate sheet (fire-and-forget, doesn't block reset)
+    // Post Extra Session entries to separate sheet tab
     const extraEntries = entries.filter(e => e.noSheet && e._extraType);
-    if (extraEntries.length) postExtraToSheet(extraEntries, today, time);
+    if (extraEntries.length) await postExtraToSheet(extraEntries, today, time);
 
     // Countdown reset only after sheet confirms update
     const rowsLabel = lastSheetRows ? ` → ${lastSheetRows}` : '';
@@ -995,7 +995,7 @@ async function postToSheet(entries, date, fallbackTime) {
 }
 
 // ══════════════════════════════════════════════
-// EXTRA SESSION SHEET SYNC (fire-and-forget)
+// EXTRA SESSION SHEET SYNC
 // ══════════════════════════════════════════════
 async function postExtraToSheet(entries, date, fallbackTime) {
   try {
@@ -1017,13 +1017,31 @@ async function postExtraToSheet(entries, date, fallbackTime) {
       }
     });
 
-    fetch(url, {
-      method: 'POST', mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ extraEntries: payload })
-    });
-    console.log('[ExtraSheet] sent:', JSON.stringify(payload));
-  } catch(_) {}
+    console.log('[ExtraSheet] payload:', JSON.stringify(payload));
+
+    try {
+      const resp = await fetch(url, {
+        method: 'POST', redirect: 'follow',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ extraEntries: payload })
+      });
+      const txt = await resp.text();
+      let parsed; try { parsed = JSON.parse(txt); } catch(_) { parsed = null; }
+      if (parsed?.ok) {
+        showFeedback(`✅ Extra sheet: ${parsed.extra ?? 1} row added`, 'success');
+      } else {
+        showFeedback('⚠️ Extra sheet: ' + (parsed?.error || txt || 'no response'), 'error');
+      }
+    } catch(_) {
+      // CORS/redirect — fire no-cors as fallback
+      await fetch(url, {
+        method: 'POST', mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ extraEntries: payload })
+      });
+      showFeedback('✅ Extra sheet sent', 'success');
+    }
+  } catch(e) { console.warn('[ExtraSheet] error:', e.message); }
 }
 
 // ══════════════════════════════════════════════
