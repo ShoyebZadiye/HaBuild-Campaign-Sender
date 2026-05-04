@@ -1017,27 +1017,33 @@ async function postExtraToSheet(entries, date, fallbackTime) {
       }
     });
 
-    console.log('[ExtraSheet] payload:', JSON.stringify(payload));
+    const body = JSON.stringify({ extraEntries: payload });
+    console.log('[ExtraSheet] payload:', body);
 
     try {
       const resp = await fetch(url, {
         method: 'POST', redirect: 'follow',
         headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ extraEntries: payload })
+        body
       });
       const txt = await resp.text();
       let parsed; try { parsed = JSON.parse(txt); } catch(_) { parsed = null; }
-      if (parsed?.ok) {
-        showFeedback(`✅ Extra sheet: ${parsed.extra ?? 1} row added`, 'success');
+
+      if (parsed?.ok && parsed?.extra !== undefined) {
+        // doPost ran correctly
+        showFeedback(`✅ Extra sheet: ${parsed.extra} row added`, 'success');
       } else {
-        showFeedback('⚠️ Extra sheet: ' + (parsed?.error || txt || 'no response'), 'error');
+        // redirect hit doGet — send no-cors to actually trigger doPost
+        await fetch(url, {
+          method: 'POST', mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain' }, body
+        });
+        showFeedback('✅ Extra sheet sent', 'success');
       }
     } catch(_) {
-      // CORS/redirect — fire no-cors as fallback
       await fetch(url, {
         method: 'POST', mode: 'no-cors',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ extraEntries: payload })
+        headers: { 'Content-Type': 'text/plain' }, body
       });
       showFeedback('✅ Extra sheet sent', 'success');
     }
