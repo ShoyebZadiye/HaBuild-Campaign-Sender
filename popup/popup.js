@@ -899,7 +899,7 @@ async function copyAndSave() {
     const tplNow2 = document.getElementById('paidTemplate')?.value || '';
     const skipSheet = ['pause','renewal_minus','renewal_plus'].includes(tplNow2);
     const sheetEntries = entries.filter(e => !e.noSheet);
-    const sheetOk = skipSheet ? true : await postToSheet(sheetEntries, today, time);
+    const sheetOk = (skipSheet || !sheetEntries.length) ? true : await postToSheet(sheetEntries, today, time);
 
     if (!sheetOk) return; // sheet failed — show error, don't reset
 
