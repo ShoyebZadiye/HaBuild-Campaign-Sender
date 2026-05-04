@@ -999,8 +999,8 @@ async function postToSheet(entries, date, fallbackTime) {
 // ══════════════════════════════════════════════
 async function postExtraToSheet(entries, date, fallbackTime) {
   try {
-    const stored = await new Promise(r => chrome.storage.local.get(['extraSheetScriptUrl'], r));
-    const url = (stored.extraSheetScriptUrl || '').trim();
+    const stored = await new Promise(r => chrome.storage.local.get(['sheetScriptUrl'], r));
+    const url = (stored.sheetScriptUrl || '').trim();
     if (!url.startsWith('https://script.google.com/')) return;
 
     const payload = entries.map(e => {
@@ -1726,9 +1726,8 @@ function saveData() {
 }
 
 function loadSavedData() {
-  chrome.storage.local.get(['formData', 'darkMode', 'autoExtracted', 'sheetScriptUrl', 'adminName', 'extraSheetScriptUrl'], r => {
+  chrome.storage.local.get(['formData', 'darkMode', 'autoExtracted', 'sheetScriptUrl', 'adminName'], r => {
     if (r.sheetScriptUrl) setVal('sheetScriptUrl', r.sheetScriptUrl);
-    if (r.extraSheetScriptUrl) setVal('extraSheetScriptUrl', r.extraSheetScriptUrl);
     if (r.adminName) { adminName = r.adminName; setVal('adminNameInput', r.adminName); }
     if (r.darkMode) {
       document.body.classList.add('dark');
@@ -1897,7 +1896,6 @@ document.addEventListener('DOMContentLoaded', () => {
     adminName = name;
     const saveObj = { adminName: name };
     if (_adminUnlocked) saveObj.sheetScriptUrl = _urlInput.value.trim();
-    saveObj.extraSheetScriptUrl = (document.getElementById('extraSheetScriptUrl')?.value || '').trim();
     chrome.storage.local.set(saveObj, () => {
       const fb = document.getElementById('settingsFeedback');
       fb.textContent = '✅ Saved!'; fb.className = 'feedback success';

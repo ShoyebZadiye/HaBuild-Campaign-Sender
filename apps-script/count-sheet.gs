@@ -9,12 +9,20 @@ const DATA_START    = 3;  // Data rows start at row 3
 const DATE_COL_FROM = 6;  // Dates start at column F (index 6, 1-based)
 
 function doGet() {
-  return jsonResponse({ ok: true, message: 'HaBuild Count Sheet webhook ready ✅' });
+  return jsonResponse({ ok: true, message: 'HaBuild Count Sheet webhook ready ✅', version: '3.0' });
 }
 
 function doPost(e) {
   try {
-    const { entries } = JSON.parse(e.postData.contents);
+    const body = JSON.parse(e.postData.contents);
+
+    // ── Extra Session entries → write to "Extra Sessions" tab ──
+    if (body.extraEntries && body.extraEntries.length) {
+      const added = writeExtraEntries(body.extraEntries);
+      return jsonResponse({ ok: true, extra: added });
+    }
+
+    const { entries } = body;
     if (!entries || !entries.length) return jsonResponse({ ok: true, updated: 0 });
 
     const sheet      = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
@@ -25,24 +33,28 @@ function doPost(e) {
 
     // Aggregate entries that land on the same cell (e.g. YE + Hindi reminder at same time)
     const cellTotals = {}; // "row_col" → total sent
+    let updated = 0;
+    const debugInfo = [];
 
     entries.forEach(entry => {
       const sent = parseInt(entry.sent) || 0;
-      if (sent <= 0) return;
+      if (sent <= 0) { debugInfo.push({ skip: 'sent=0', msgname: entry.msgname }); return; }
 
       const colNum = findDateCol(headerVals, entry.date);
-      if (!colNum) return;
+      if (!colNum) { debugInfo.push({ skip: 'date_col_not_found', date: entry.date, msgname: entry.msgname }); return; }
 
       const time12 = entry._bcTime ? to12h(entry._bcTime) : null;
       const rowNum  = findRow(dataVals, entry.msgname, time12);
-      if (!rowNum) return;
+      if (!rowNum) {
+        const sheetRows = debugInfo.some(d => d.sheetRows) ? undefined
+          : dataVals.slice(0, 20).map(r => String(r[0]||'').trim()).filter(Boolean);
+        debugInfo.push({ skip: 'row_not_found', msgname: entry.msgname, time12, cat: entryCategory(entry.msgname), sheetRows });
+        return;
+      }
 
       const key = rowNum + '_' + colNum;
       cellTotals[key] = (cellTotals[key] || 0) + sent;
     });
-
-    let updated = 0;
-    const debugInfo = [];
     Object.entries(cellTotals).forEach(([key, total]) => {
       const [r, c] = key.split('_').map(Number);
       sheet.getRange(r, c).setValue(total);
@@ -102,8 +114,15 @@ function to12h(t) {
 // ── Map msgname → category for row matching ────────────
 function entryCategory(msgname) {
   const n = (msgname || '').toLowerCase();
+  // Sunday hourly tracker — must check BEFORE saturday_combine which also matches 'sunday_attendance'
+  if (n.includes('sunday') && (n.includes('tracker') || n.includes('milestone')))
+    return 'sunday_att';
   if (n.includes('sunday_attendance') || n.includes('hindi_sunday') || n.includes('saturday_combine'))
     return 'saturday_combine';
+  if (n.includes('hindi') && (n.includes('absent') || n.includes('night_absent') || n.includes('combine_absent')))
+    return 'hindi_night_absent';
+  if (n.includes('hindi') && (n.includes('present') || n.includes('night_present')))
+    return 'hindi_night_present';
   if (n.includes('night_absent') || n.includes('combine_absent') ||
       (n.includes('absent') && (n.includes('night') || n.includes('combine'))))
     return 'combine_absent';
@@ -111,6 +130,8 @@ function entryCategory(msgname) {
     return 'night_present';
   if (n.includes('saturday_reminder'))  return 'saturday_reminder';
   if (n.includes('sunday_intension'))   return 'sunday_intension';
+  if (n.includes('hindi') && (n.includes('attendance') || n.includes('tracker')))
+    return 'hindi_attendance';
   if (n.includes('milestone'))          return 'milestone';
   if (n.includes('attendance') || n.includes('tracker')) return 'attendance';
   if (n.includes('_se') || n.includes('se_') || n.includes('ds') || n.includes('strong'))
@@ -121,17 +142,23 @@ function entryCategory(msgname) {
 // ── Map sheet row name → category ─────────────────────
 function rowCategory(rowName) {
   const n = (rowName || '').toLowerCase();
-  if (n.includes('night absent'))                                     return 'combine_absent';
-  if (n.includes('saturday absent') || n.includes('saturday combine'))return 'saturday_combine';
+  if (n.includes('hindi') && n.includes('absent'))                    return 'hindi_night_absent';
+  if (n.includes('hindi') && n.includes('present'))                   return 'hindi_night_present';
+  if (n.includes('night absent'))                                      return 'combine_absent';
+  if (n.includes('sunday morning') || n.includes('sunday evening'))   return 'sunday_att';
+  if (n.includes('saturday absent') || n.includes('saturday combine') ||
+      n.includes('sunday attendance'))                                  return 'saturday_combine';
   if (n.includes('night present') || n.includes('night message'))     return 'night_present';
   if (n.includes('saturday present') || n.includes('saturday reminder')) return 'saturday_reminder';
   if (n.includes('sunday intension'))                                 return 'sunday_intension';
   if (n.includes('absent'))                                           return 'yoga_absent';
+  if (n.includes('hindi') && n.includes('attendance'))                return 'hindi_attendance';
   if (n.includes('milestone'))                                        return 'milestone';
   if (n.includes('attendance'))                                       return 'attendance';
   if (n.includes('ds-class') || n.includes('ds class'))               return 'ds_class';
   // "Yoga - Reminder Message" = class message (renamed in sheet)
-  if (n.includes('reminder message') || n.includes('class message') || n.includes('routine')) return 'yoga_class';
+  if (n.includes('reminder message') || n.includes('class message') || n.includes('routine') ||
+      (n.includes('reminder') && !n.includes('saturday') && !n.includes('night'))) return 'yoga_class';
   return 'other';
 }
 
@@ -139,6 +166,33 @@ function rowCategory(rowName) {
 // "05:20 am" → "5:20 am",  "4:20 pm" → "4:20 pm"
 function normTime(t) {
   return String(t || '').trim().toLowerCase().replace(/^0(\d:)/, '$1');
+}
+
+// ── Parse sheet cell time (handles both text and Date objects) ────────────
+// Google Sheets stores time as Date objects; text rows store as "H:MM am/pm"
+function parseSheetTime(val) {
+  if (!val && val !== 0) return '';
+  if (val instanceof Date) {
+    let h = val.getHours();
+    const m = val.getMinutes();
+    const ampm = h >= 12 ? 'pm' : 'am';
+    if (h === 0) h = 12;
+    else if (h > 12) h -= 12;
+    return h + ':' + String(m).padStart(2, '0') + ' ' + ampm;
+  }
+  return normTime(String(val));
+}
+
+// ── Convert "H:MM am/pm" → total minutes (for fuzzy match) ───
+function timeStrToMins(t) {
+  const m = String(t || '').match(/(\d+):(\d+)\s*(am|pm)/i);
+  if (!m) return -1;
+  let h = parseInt(m[1]);
+  const min = parseInt(m[2]);
+  const isPm = m[3].toLowerCase() === 'pm';
+  if (isPm && h !== 12) h += 12;
+  if (!isPm && h === 12) h = 0;
+  return h * 60 + min;
 }
 
 // ── Find matching sheet row (1-based row number) ───────
@@ -150,7 +204,7 @@ function findRow(dataVals, msgname, time12) {
   if (timeLow) {
     for (let i = 0; i < dataVals.length; i++) {
       const name = String(dataVals[i][0] || '').trim();
-      const time = normTime(dataVals[i][1]);
+      const time = parseSheetTime(dataVals[i][1]);
       if (!name || time !== timeLow) continue;
       if (rowCategory(name) === cat) return DATA_START + i;
     }
@@ -161,7 +215,7 @@ function findRow(dataVals, msgname, time12) {
     const hits = [];
     for (let i = 0; i < dataVals.length; i++) {
       const name = String(dataVals[i][0] || '').trim();
-      const time = normTime(dataVals[i][1]);
+      const time = parseSheetTime(dataVals[i][1]);
       if (!name || time !== timeLow) continue;
       hits.push(DATA_START + i);
     }
@@ -176,6 +230,58 @@ function findRow(dataVals, msgname, time12) {
     }
   }
 
+  // Pass 3a: sunday_att — time is inside the row name ("Sunday EVENING 9:00 PM"), not col B
+  if (cat === 'sunday_att' && timeLow) {
+    for (let i = 0; i < dataVals.length; i++) {
+      const name = String(dataVals[i][0] || '').trim();
+      if (!name || rowCategory(name) !== 'sunday_att') continue;
+      const m = name.match(/(\d+:\d+\s*(?:am|pm))/i);
+      if (!m) continue;
+      if (normTime(m[1]) === timeLow) return DATA_START + i;
+    }
+    // Fuzzy ±90 min from name time (handles stale lastBcTime)
+    const curMins = timeStrToMins(timeLow);
+    if (curMins >= 0) {
+      let best = null, bestDiff = 999;
+      for (let i = 0; i < dataVals.length; i++) {
+        const name = String(dataVals[i][0] || '').trim();
+        if (!name || rowCategory(name) !== 'sunday_att') continue;
+        const m = name.match(/(\d+:\d+\s*(?:am|pm))/i);
+        if (!m) continue;
+        const rowMins = timeStrToMins(normTime(m[1]));
+        const diff = Math.abs(rowMins - curMins);
+        if (diff <= 90 && diff < bestDiff) { best = DATA_START + i; bestDiff = diff; }
+      }
+      if (best !== null) return best;
+    }
+  }
+
+  // Pass 3.5: category-only when exactly one row has this category
+  // Handles rows with no time in col B (e.g. "Yoga Attendance" with no time)
+  const catHits = [];
+  for (let i = 0; i < dataVals.length; i++) {
+    const name = String(dataVals[i][0] || '').trim();
+    if (!name) continue;
+    if (rowCategory(name) === cat) catHits.push(DATA_START + i);
+  }
+  if (catHits.length === 1) return catHits[0];
+
+  // Pass 4: ±90 min fuzzy time + category
+  // Wide window handles stale lastBcTime (e.g. 6:05 PM stored but row is at 6:50 PM)
+  if (timeLow) {
+    const curMins = timeStrToMins(timeLow);
+    if (curMins >= 0) {
+      for (let i = 0; i < dataVals.length; i++) {
+        const name    = String(dataVals[i][0] || '').trim();
+        const rowTime = parseSheetTime(dataVals[i][1]);
+        if (!name || !rowTime) continue;
+        const rowMins = timeStrToMins(rowTime);
+        if (rowMins < 0) continue;
+        if (Math.abs(rowMins - curMins) <= 90 && rowCategory(name) === cat) return DATA_START + i;
+      }
+    }
+  }
+
   return null;
 }
 
@@ -183,4 +289,45 @@ function jsonResponse(data) {
   return ContentService
     .createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ── Extra Sessions tab writer ──────────────────────────────────────
+var EXTRA_SHEET_NAME = 'Extra Sessions';
+
+function writeExtraEntries(entries) {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(EXTRA_SHEET_NAME);
+
+  if (!sheet) {
+    sheet = ss.insertSheet(EXTRA_SHEET_NAME);
+    var hdr = sheet.getRange(1, 1, 1, 9);
+    hdr.setValues([['Date','Time','Type','Batch','WATI','Sent','Expected','Diff','Yesterday']]);
+    hdr.setFontWeight('bold').setBackground('#f1f5f9');
+    sheet.setFrozenRows(1);
+  }
+
+  var added = 0;
+  entries.forEach(function(e) {
+    var label = e.type === 'water' ? 'Water Reminder'
+              : e.type === 'email' ? 'Email Reminder'
+              : 'SE Attendance';
+    sheet.appendRow([
+      e.date      || '',
+      e.time      || '',
+      label,
+      e.batch     || '',
+      e.wati      || '',
+      e.sent      || 0,
+      e.expected  || '',
+      e.diff      || '',
+      e.yesterday || ''
+    ]);
+    // Color by type
+    var color = e.type === 'water' ? '#e0f7fa'
+              : e.type === 'email' ? '#e8eaf6'
+              : '#f3e5f5';
+    sheet.getRange(sheet.getLastRow(), 1, 1, 9).setBackground(color);
+    added++;
+  });
+  return added;
 }
