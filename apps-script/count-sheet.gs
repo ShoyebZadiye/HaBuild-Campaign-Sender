@@ -270,19 +270,23 @@ function findRow(dataVals, msgname, time12) {
   }
   if (catHits.length === 1) return catHits[0];
 
-  // Pass 4: ±90 min fuzzy time + category
-  // Wide window handles stale lastBcTime (e.g. 6:05 PM stored but row is at 6:50 PM)
+  // Pass 4: ±90 min fuzzy time + category — pick CLOSEST match, not first
   if (timeLow) {
     const curMins = timeStrToMins(timeLow);
     if (curMins >= 0) {
+      let bestRow = null, bestDiff = 91;
       for (let i = 0; i < dataVals.length; i++) {
         const name    = String(dataVals[i][0] || '').trim();
         const rowTime = parseSheetTime(dataVals[i][1]);
         if (!name || !rowTime) continue;
         const rowMins = timeStrToMins(rowTime);
         if (rowMins < 0) continue;
-        if (Math.abs(rowMins - curMins) <= 90 && rowCategory(name) === cat) return DATA_START + i;
+        const diff = Math.abs(rowMins - curMins);
+        if (diff <= 90 && rowCategory(name) === cat && diff < bestDiff) {
+          bestRow = DATA_START + i; bestDiff = diff;
+        }
       }
+      if (bestRow !== null) return bestRow;
     }
   }
 
