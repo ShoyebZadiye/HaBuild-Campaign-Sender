@@ -1356,7 +1356,10 @@ async function fillFields(data) {
         if (data.sentCount) { setVal('extraWaterSent', data.sentCount); filledSlots.add('extraWaterSent'); }
         saveData();
         showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
-        const yestW = await fetchYesterdayCount(data.campaignName, timeStr);
+        // Use constructed msgname (matches what Firestore stores) instead of WATI campaign name
+        const waterTime = document.getElementById('extraWaterTime')?.value || '11:00 AM';
+        const waterMsgname = 'Water_Reminder_' + waterTime.replace(/[\s:]/g, '');
+        const yestW = await fetchYesterdayCount(waterMsgname, timeStr);
         if (yestW !== null) { setVal('extraWaterYest', String(yestW)); showFeedback('✅ Water Reminder slot fill hua!', 'success'); }
         else showFeedback('✅ Water Reminder fill hua! (Yesterday manually dalo)', 'info');
       } else if (sub === 'email') {

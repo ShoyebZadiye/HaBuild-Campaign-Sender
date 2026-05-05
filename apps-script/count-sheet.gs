@@ -320,7 +320,7 @@ function writeExtraEntries(entries) {
       e.sent      || 0,
       e.expected  || '',
       e.diff      || '',
-      e.yesterday || ''
+      e.yesterday != null ? e.yesterday : ''
     ]);
     // Color by type
     var color = e.type === 'water' ? '#e0f7fa'
