@@ -27,7 +27,7 @@ const PAID_STATIC = ['paidTemplate','paidWati','simpleTimePrefix','simpleNote',
   'sunAttSent','sunAttExp','sunMilSent','sunMilExp','sunHindiSent','sunHindiExp',
   'paidYestCount',
   'extraSubType','extraWaterTime','extraWaterWati','extraWaterSent','extraWaterYest',
-  'extraEmailBatch','extraEmailSent','extraEmailExp','extraEmailYest',
+  'extraEmailTime','extraEmailBatch','extraEmailSent','extraEmailExp','extraEmailYest',
   'extraSEBatch','extraSESent','extraSEWati'];
 
 // ══════════════════════════════════════════════
@@ -674,9 +674,10 @@ async function copyAndSave() {
           const sent = parseInt(document.getElementById('extraEmailSent')?.value) || 0;
           const exp  = parseInt(document.getElementById('extraEmailExp')?.value) || 0;
           if (!sent) { showFeedback('Sent count bharo', 'error'); return; }
+          const emailTime = document.getElementById('extraEmailTime')?.value || lastBcTime || null;
           // noSheet:false → goes to main count sheet (Email - Reminder Message rows)
           entries.push({ msgname: 'Paid_YE_Email_Reminder', sent, expected: exp, diff: exp - sent, noSheet: false,
-            _bcTime: lastBcTime || null,
+            _bcTime: emailTime,
             _extraType: 'email',
             _extraBatch: document.getElementById('extraEmailBatch')?.value || '' });
         } else if (sub === 'se') {
@@ -1362,6 +1363,21 @@ async function fillFields(data) {
         if (yestW !== null) { setVal('extraWaterYest', String(yestW)); showFeedback('✅ Water Reminder slot fill hua!', 'success'); }
         else showFeedback('✅ Water Reminder fill hua! (Yesterday manually dalo)', 'info');
       } else if (sub === 'email') {
+        // Auto-select closest email time slot
+        const emailSlots = [
+          { val: '05:20', mins: 320 }, { val: '06:45', mins: 405 },
+          { val: '07:45', mins: 465 }, { val: '16:20', mins: 980 },
+          { val: '17:20', mins: 1040 }, { val: '18:20', mins: 1100 }
+        ];
+        const bcTime = data.bcTime || lastBcTime;
+        if (bcTime) {
+          const [hh, mm] = bcTime.split(':').map(Number);
+          const bcMins = hh * 60 + mm;
+          const closest = emailSlots.reduce((a, b) =>
+            Math.abs(a.mins - bcMins) < Math.abs(b.mins - bcMins) ? a : b
+          );
+          setVal('extraEmailTime', closest.val);
+        }
         const emailSent = data.triggeredCount || data.sentCount;
         if (emailSent)          { setVal('extraEmailSent', emailSent); filledSlots.add('extraEmailSent'); }
         if (data.expectedCount) setVal('extraEmailExp', data.expectedCount);
@@ -2089,7 +2105,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (el) el.addEventListener('input', () => { updatePreview(); saveData(); });
   });
   ['attendBatch','att3Wati','remBatch',
-   'extraWaterTime','extraWaterWati','extraEmailBatch','extraSEBatch','extraSEWati'].forEach(id => {
+   'extraWaterTime','extraWaterWati','extraEmailTime','extraEmailBatch','extraSEBatch','extraSEWati'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', () => { updatePreview(); saveData(); });
   });
