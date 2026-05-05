@@ -136,6 +136,8 @@ function entryCategory(msgname) {
   if (n.includes('attendance') || n.includes('tracker')) return 'attendance';
   if (n.includes('_se') || n.includes('se_') || n.includes('ds') || n.includes('strong'))
     return 'ds_class';
+  if (n.includes('water') && n.includes('reminder')) return 'water_reminder';
+  if (n.includes('email') && n.includes('reminder')) return 'email_reminder';
   return 'yoga_class';
 }
 
@@ -156,6 +158,8 @@ function rowCategory(rowName) {
   if (n.includes('milestone'))                                        return 'milestone';
   if (n.includes('attendance'))                                       return 'attendance';
   if (n.includes('ds-class') || n.includes('ds class'))               return 'ds_class';
+  if (n.includes('water') && n.includes('reminder'))                  return 'water_reminder';
+  if (n.includes('email') && n.includes('reminder'))                  return 'email_reminder';
   // "Yoga - Reminder Message" = class message (renamed in sheet)
   if (n.includes('reminder message') || n.includes('class message') || n.includes('routine') ||
       (n.includes('reminder') && !n.includes('saturday') && !n.includes('night'))) return 'yoga_class';

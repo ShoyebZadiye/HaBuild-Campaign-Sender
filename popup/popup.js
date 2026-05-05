@@ -665,21 +665,24 @@ async function copyAndSave() {
           const time = document.getElementById('extraWaterTime')?.value || '11:00 AM';
           const sent = parseInt(document.getElementById('extraWaterSent')?.value) || 0;
           if (!sent) { showFeedback('Sent count bharo', 'error'); return; }
-          entries.push({ msgname: 'Water_Reminder_' + time.replace(/[\s:]/g, ''), sent, expected: 0, diff: 0, noSheet: true,
+          // noSheet:false → goes to main count sheet (WATER REMINDER rows)
+          entries.push({ msgname: 'Water_Reminder_' + time.replace(/[\s:]/g, ''), sent, expected: 0, diff: 0, noSheet: false,
+            _bcTime: lastBcTime || null,
             _extraType: 'water', _extraTime: time,
-            _extraWati: document.getElementById('extraWaterWati')?.value || '',
-            _extraYest: parseInt(document.getElementById('extraWaterYest')?.value) || 0 });
+            _extraWati: document.getElementById('extraWaterWati')?.value || '' });
         } else if (sub === 'email') {
           const sent = parseInt(document.getElementById('extraEmailSent')?.value) || 0;
           const exp  = parseInt(document.getElementById('extraEmailExp')?.value) || 0;
           if (!sent) { showFeedback('Sent count bharo', 'error'); return; }
-          entries.push({ msgname: 'Paid_YE_Email_Reminder', sent, expected: exp, diff: exp - sent, noSheet: true,
+          // noSheet:false → goes to main count sheet (Email - Reminder Message rows)
+          entries.push({ msgname: 'Paid_YE_Email_Reminder', sent, expected: exp, diff: exp - sent, noSheet: false,
+            _bcTime: lastBcTime || null,
             _extraType: 'email',
-            _extraBatch: document.getElementById('extraEmailBatch')?.value || '',
-            _extraYest: parseInt(document.getElementById('extraEmailYest')?.value) || 0 });
+            _extraBatch: document.getElementById('extraEmailBatch')?.value || '' });
         } else if (sub === 'se') {
           const sent = parseInt(document.getElementById('extraSESent')?.value) || 0;
           if (!sent) { showFeedback('Sent count bharo', 'error'); return; }
+          // noSheet:true → Firestore only (independent, no count-sheet row needed)
           entries.push({ msgname: 'Paid_SE_Attendance', sent, expected: 0, diff: 0, noSheet: true,
             _extraType: 'se',
             _extraBatch: document.getElementById('extraSEBatch')?.value || '',
@@ -903,9 +906,7 @@ async function copyAndSave() {
 
     if (!sheetOk) return; // sheet failed — show error, don't reset
 
-    // Post Extra Session entries to separate sheet tab
-    const extraEntries = entries.filter(e => e.noSheet && e._extraType);
-    if (extraEntries.length) await postExtraToSheet(extraEntries, today, time);
+    // Extra Session (SE) entries are Firestore-only — no separate sheet tab needed
 
     // Countdown reset only after sheet confirms update
     const rowsLabel = lastSheetRows ? ` → ${lastSheetRows}` : '';
@@ -1356,10 +1357,8 @@ async function fillFields(data) {
         if (data.sentCount) { setVal('extraWaterSent', data.sentCount); filledSlots.add('extraWaterSent'); }
         saveData();
         showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
-        // Use constructed msgname (matches what Firestore stores) instead of WATI campaign name
-        const waterTime = document.getElementById('extraWaterTime')?.value || '11:00 AM';
-        const waterMsgname = 'Water_Reminder_' + waterTime.replace(/[\s:]/g, '');
-        const yestW = await fetchYesterdayCount(waterMsgname, timeStr);
+        // Fetch from count sheet (WATER REMINDER row is now in main sheet)
+        const yestW = await fetchCountSheetYesterday(timeStr);
         if (yestW !== null) { setVal('extraWaterYest', String(yestW)); showFeedback('✅ Water Reminder slot fill hua!', 'success'); }
         else showFeedback('✅ Water Reminder fill hua! (Yesterday manually dalo)', 'info');
       } else if (sub === 'email') {
@@ -1368,7 +1367,8 @@ async function fillFields(data) {
         if (data.expectedCount) setVal('extraEmailExp', data.expectedCount);
         saveData();
         showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
-        const yestE = await fetchYesterdayCount('Paid_YE_Email_Reminder', timeStr);
+        // Fetch from count sheet (Email - Reminder Message row is now in main sheet)
+        const yestE = await fetchCountSheetYesterday(timeStr);
         if (yestE !== null) { setVal('extraEmailYest', String(yestE)); showFeedback('✅ Email Reminder slot fill hua!', 'success'); }
         else showFeedback('✅ Email Reminder fill hua! (Yesterday manually dalo)', 'info');
       } else {
