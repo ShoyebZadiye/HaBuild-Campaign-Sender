@@ -1224,7 +1224,10 @@ async function extractFromPage() {
 }
 
 async function fillFields(data) {
-  if (data.category) setType(data.category);
+  // Never auto-switch FREE→PAID; user on FREE tab must stay on FREE
+  if (data.category && !(currentType === 'FREE' && data.category === 'PAID')) {
+    setType(data.category);
+  }
   if (data.bcTime) lastBcTime = data.bcTime;
   if (data.bcDate) lastBcDate = data.bcDate;
 
