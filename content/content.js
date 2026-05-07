@@ -20,7 +20,17 @@ window._habuildClickHandler = function(event) {
     const btnText = btn.textContent.trim();
     if (!btnText.includes('Stats')) return;
 
-    const card = btn.closest('div.p-4');
+    // Find card: try common Tailwind padding classes, then walk up to first ancestor
+    // with substantial text (≥60 chars) — handles any card class structure
+    let card = btn.closest('div.p-4') || btn.closest('div.p-6') || btn.closest('div.p-5') || btn.closest('div.p-3');
+    if (!card) {
+      for (let el = btn.parentElement; el && el !== document.body; el = el.parentElement) {
+        const t = el.innerText || el.textContent || '';
+        if ((el.tagName === 'DIV' || el.tagName === 'LI' || el.tagName === 'ARTICLE') && t.length >= 60) {
+          card = el; break;
+        }
+      }
+    }
     const cardText = card?.innerText || card?.textContent || '';
 
     let campaignName = '';
@@ -42,12 +52,19 @@ window._habuildClickHandler = function(event) {
     }
     if (nameEl) campaignName = nameEl.textContent.replace(/Campaign\s*Name\s*:/i,'').trim();
 
-    // FREE detection: check ALL active tabs (querySelectorAll avoids inner day-tabs shadowing)
+    // FREE detection: three signals combined
+    // 1) card has a green background element
+    // 2) Radix id contains "trigger-Free" and is active (both cases)
+    // 3) ANY active role=tab whose text includes "free" (handles emoji/count in label)
     const _bgGreen = !!card?.querySelector('[class*="bg-green"]');
-    const _tabFree = Array.from(document.querySelectorAll('[role="tab"]')).some(t => {
-      const active = t.getAttribute('data-state') === 'active' || t.getAttribute('aria-selected') === 'true';
-      return active && t.textContent.trim().toLowerCase() === 'free';
-    });
+    const _tabFree = !!(
+      document.querySelector('[id*="trigger-Free"][data-state="active"]') ||
+      document.querySelector('[id*="trigger-free"][data-state="active"]') ||
+      Array.from(document.querySelectorAll('[role="tab"]')).some(t => {
+        const active = t.getAttribute('data-state') === 'active' || t.getAttribute('aria-selected') === 'true';
+        return active && t.textContent.trim().toLowerCase().includes('free');
+      })
+    );
     const category = (_bgGreen || _tabFree) ? 'FREE' : 'PAID';
     const cidMatch  = cardText.match(/(?:Challenge[_\s]*|CID\s*)(\d+)/i);
     const watiMatch = cardText.match(/wati\s+(\d+)/i);
@@ -151,7 +168,8 @@ function waitForStats() {
     if (!pageText) return;
 
     const hasSent = /Total\s+(?:Provider\s+)?Sent\s*[:\-]?\s*[\d,]+/i.test(pageText) ||
-                    /System\s+Initialized[^:\n]*[:\-]?\s*[\d,]+/i.test(pageText);
+                    /System\s+Initialized[^:\n]*[:\-]?\s*[\d,]+/i.test(pageText) ||
+                    /\bSent\s*[:\-]\s*[\d,]+/i.test(pageText);
     if (!hasSent) return;
 
     clearInterval(window._habuildTimer); window._habuildTimer = null;
