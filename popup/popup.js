@@ -1355,11 +1355,24 @@ async function fillFields(data) {
     // Auto-detect batch from attBatchHint (card text)
     const autoBatch = (isAtt && data.attBatchHint) ? data.attBatchHint : '1st batch';
 
-    // ── RESET: every Stats click = fresh start (exactly like PAID) ──────────
-    // Skip reset if user manually added rows (freeRowsLocked) — unlock only on Copy&Save/Reload.
-    // Always keep Attendance rows for same CID so Normal/Day1/Day3/Day7 fill one-by-one.
-    if (freeRowsLocked) {
-      // Locked: just update/add the specific row, don't clear anything
+    const isNight = timeType === 'Night Present' || timeType === 'Night Absent';
+    const watiVal = wati || getWatiFromCid(cid);
+
+    // ── RESET / SETUP ────────────────────────────────────────────────────────
+    if (isNight && cid) {
+      // Night always auto-creates Present+Absent pair (like PAID nightWrap).
+      // Remove non-Night rows and rows for a different CID.
+      freeBroadcasts = freeBroadcasts.filter(fb =>
+        (fb.type === 'Night Present' || fb.type === 'Night Absent') && fb.cid === cid
+      );
+      if (!freeBroadcasts.some(fb => fb.type === 'Night Present'))
+        freeBroadcasts.push({ cid, type:'Night Present', batch:'1st batch', day:'normal', wati:watiVal, sent:'', expected:'', yest:'' });
+      if (!freeBroadcasts.some(fb => fb.type === 'Night Absent'))
+        freeBroadcasts.push({ cid, type:'Night Absent', batch:'1st batch', day:'normal', wati:watiVal, sent:'', expected:'', yest:'' });
+      // Present always before Absent
+      freeBroadcasts.sort((a, b) => (a.type === 'Night Present' ? -1 : b.type === 'Night Present' ? 1 : 0));
+    } else if (freeRowsLocked) {
+      // Locked by Add Broadcast: update matching row, don't clear anything
     } else if (isAtt && cid && freeBroadcasts.some(fb => fb.type === 'Attendance' && fb.cid === cid)) {
       freeBroadcasts = freeBroadcasts.filter(fb => fb.type === 'Attendance' && fb.cid === cid);
     } else {
