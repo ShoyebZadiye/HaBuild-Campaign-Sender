@@ -236,72 +236,67 @@ function formatTimePrefix(hhmm) {
 function renderFreeRows() {
   const container = document.getElementById('freeRows');
   if (!container) return;
-  const inp = (val, idx, field, ph) =>
-    `<input type="number" style="width:100%;padding:5px 7px;border-radius:6px;border:1px solid var(--border,#e2e8f0);font-size:.82rem;background:var(--bg,#fff);color:var(--text,#1e293b)"
-      value="${val}" placeholder="${ph}"
-      oninput="freeBroadcasts[${idx}].${field}=this.value;updatePreview();saveData();">`;
-  const lbl = t => `<div style="font-size:.7rem;color:var(--muted,#64748b);margin-bottom:2px">${t}</div>`;
-  const colStyle = flex => `style="flex:${flex};min-width:0"`;
-  const selStyle = `style="width:100%;padding:5px 7px;border-radius:6px;border:1px solid var(--border,#e2e8f0);font-size:.82rem;background:var(--bg,#fff);color:var(--text,#1e293b)"`;
+  const TYPE_ICON = {
+    'Morning Message':'🌅','Evening Message':'🌙','Attendance':'📋',
+    'Bonus':'🎁','Orientation':'📚','Quiz':'📝',
+    'Night Present':'🌟','Night Absent':'🌑','Payment':'💳'
+  };
+  const TYPES = Object.keys(TYPE_ICON);
+  const showRM = freeBroadcasts.length > 1;
 
   container.innerHTML = freeBroadcasts.map((fb, i) => {
-    const isAtt = fb.type === 'Attendance';
-    const autoWati = getWatiFromCid(fb.cid);
-    return `<div style="background:var(--surface2,#f1f5f9);border:1px solid var(--border,#e2e8f0);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px">
-      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end">
-        <div ${colStyle('0 0 72px')}>
-          ${lbl('CID')}
-          <input type="number" style="width:100%;padding:5px 7px;border-radius:6px;border:1px solid var(--border,#e2e8f0);font-size:.82rem;background:var(--bg,#fff);color:var(--text,#1e293b)"
-            value="${fb.cid}" placeholder="2008"
-            oninput="freeBroadcasts[${i}].cid=this.value;freeBroadcasts[${i}].wati=freeBroadcasts[${i}].wati||getWatiFromCid(this.value);renderFreeRows();updatePreview();saveData();">
-        </div>
-        <div ${colStyle('1 1 110px')}>
-          ${lbl('Type')}
-          <select ${selStyle} onchange="freeBroadcasts[${i}].type=this.value;renderFreeRows();updatePreview();saveData();">
-            <option value="Morning Message"  ${fb.type==='Morning Message' ?'selected':''}>🌅 Morning</option>
-            <option value="Evening Message"  ${fb.type==='Evening Message' ?'selected':''}>🌙 Evening</option>
-            <option value="Attendance"       ${fb.type==='Attendance'      ?'selected':''}>📋 Attendance</option>
-            <option value="Bonus"            ${fb.type==='Bonus'           ?'selected':''}>🎁 Bonus</option>
-            <option value="Orientation"      ${fb.type==='Orientation'     ?'selected':''}>📚 Orientation</option>
-            <option value="Quiz"             ${fb.type==='Quiz'            ?'selected':''}>📝 Quiz</option>
-            <option value="Night Present"    ${fb.type==='Night Present'   ?'selected':''}>🌙 Night Present</option>
-            <option value="Night Absent"     ${fb.type==='Night Absent'    ?'selected':''}>🌑 Night Absent</option>
-            <option value="Payment"          ${fb.type==='Payment'         ?'selected':''}>💳 Payment</option>
-          </select>
-        </div>
-        ${isAtt ? `
-        <div ${colStyle('0 0 90px')}>
-          ${lbl('Batch')}
-          <select ${selStyle} onchange="freeBroadcasts[${i}].batch=this.value;updatePreview();saveData();">
-            <option ${fb.batch==='1st batch'?'selected':''}>1st batch</option>
-            <option ${fb.batch==='2nd batch'?'selected':''}>2nd batch</option>
-            <option ${fb.batch==='3rd batch'?'selected':''}>3rd batch</option>
-          </select>
-        </div>
-        <div ${colStyle('0 0 82px')}>
-          ${lbl('Day')}
-          <select ${selStyle} onchange="freeBroadcasts[${i}].day=this.value;updatePreview();saveData();">
-            <option ${fb.day==='normal'?'selected':''}>normal</option>
-            <option ${fb.day==='Day 1'?'selected':''}>Day 1</option>
-            <option ${fb.day==='Day 3'?'selected':''}>Day 3</option>
-            <option ${fb.day==='Day 7'?'selected':''}>Day 7</option>
-            <option ${fb.day==='Day 14'?'selected':''}>Day 14</option>
-          </select>
-        </div>` : ''}
-        <div ${colStyle('1 1 100px')}>
-          ${lbl('WATI')}
-          <input type="text" style="width:100%;padding:5px 7px;border-radius:6px;border:1px solid var(--border,#e2e8f0);font-size:.82rem;background:var(--bg,#fff);color:var(--text,#1e293b)"
-            value="${fb.wati || autoWati}" placeholder="${autoWati}"
-            oninput="freeBroadcasts[${i}].wati=this.value;updatePreview();saveData();">
-        </div>
-        ${freeBroadcasts.length > 1 ? `<button onclick="removeFreeRow(${i})" style="align-self:flex-end;padding:4px 9px;border-radius:6px;border:1px solid #ef4444;background:transparent;color:#ef4444;cursor:pointer;font-size:.9rem;font-weight:700;flex-shrink:0">×</button>` : ''}
+    const isAtt      = fb.type === 'Attendance';
+    const isEveOrMorn = fb.type === 'Morning Message' || fb.type === 'Evening Message';
+    const watiVal    = fb.wati || getWatiFromCid(fb.cid) || '';
+    const icon       = TYPE_ICON[fb.type] || '📣';
+    const hdr        = fb.cid ? `${icon} ${fb.type} — CID ${fb.cid}` : `${icon} ${fb.type}`;
+    return `
+<div class="camp-row">
+  <div class="camp-row-hdr">
+    <span>${hdr}</span>
+    ${showRM ? `<button class="camp-rm" data-action="remove" data-idx="${i}">✕</button>` : ''}
+  </div>
+  <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px">
+    <div class="row2">
+      <div class="field"><label>CID</label>
+        <input type="number" placeholder="2008" value="${fb.cid}" data-idx="${i}" data-field="cid">
       </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        <div ${colStyle('1 1 70px')}>${lbl('Sent')}${inp(fb.sent,i,'sent','0')}</div>
-        <div ${colStyle('1 1 70px')}>${lbl('Expected')}${inp(fb.expected,i,'expected','0')}</div>
-        <div ${colStyle('0 0 78px')}>${lbl('Yesterday')}${inp(fb.yest,i,'yest','0')}</div>
+      <div class="field"><label>Type</label>
+        <select data-idx="${i}" data-field="type">
+          ${TYPES.map(t=>`<option value="${t}"${fb.type===t?' selected':''}>${TYPE_ICON[t]} ${t}</option>`).join('')}
+        </select>
       </div>
-    </div>`;
+    </div>
+    ${isAtt ? `
+    <div class="row2">
+      <div class="field"><label>Batch</label>
+        <select data-idx="${i}" data-field="batch">
+          ${['1st batch','2nd batch','3rd batch'].map(b=>`<option${fb.batch===b?' selected':''}>${b}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Day</label>
+        <select data-idx="${i}" data-field="day">
+          ${['normal','Day 1','Day 3','Day 7','Day 14'].map(d=>`<option${fb.day===d?' selected':''}>${d}</option>`).join('')}
+        </select>
+      </div>
+    </div>` : ''}
+    <div class="field"><label>WATI</label>
+      <input type="text" placeholder="${watiVal||'wati 14'}" value="${watiVal}" data-idx="${i}" data-field="wati">
+    </div>
+    <div class="row2">
+      <div class="field"><label>Sent</label>
+        <input type="number" placeholder="0" value="${fb.sent||''}" data-idx="${i}" data-field="sent">
+      </div>
+      <div class="field"><label>Expected</label>
+        <input type="number" placeholder="0" value="${fb.expected||''}" data-idx="${i}" data-field="expected">
+      </div>
+    </div>
+    ${isEveOrMorn ? `
+    <div class="field"><label>Yesterday</label>
+      <input type="number" placeholder="0" value="${fb.yest||''}" data-idx="${i}" data-field="yest">
+    </div>` : ''}
+  </div>
+</div>`;
   }).join('');
 }
 
@@ -2068,6 +2063,7 @@ function loadSavedData() {
     }
     if (freshExtract) {
       fillFields(r.autoExtracted);
+      chrome.storage.local.remove(['autoExtracted']); // data now in formData — don't re-fill on next open
       const msg = document.getElementById('autoMsg');
       msg.textContent = '✅ Auto-extracted values from Stats!';
       msg.style.display = 'block';
@@ -2303,6 +2299,29 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('saveBtn').addEventListener('click', saveToDashboard);
   document.getElementById('addCampBtn').addEventListener('click', addCamp);
   document.getElementById('addFreeRowBtn').addEventListener('click', addFreeRow);
+
+  // FREE rows — one-time event delegation (survives innerHTML re-renders)
+  const freeRowsEl = document.getElementById('freeRows');
+  freeRowsEl.addEventListener('click', e => {
+    const btn = e.target.closest('[data-action="remove"]');
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.idx);
+    if (!isNaN(idx)) removeFreeRow(idx);
+  });
+  freeRowsEl.addEventListener('input', e => {
+    const el = e.target; const idx = parseInt(el.dataset.idx); const field = el.dataset.field;
+    if (isNaN(idx) || !field || el.tagName === 'SELECT') return;
+    freeBroadcasts[idx][field] = el.value;
+    updatePreview(); saveData();
+  });
+  freeRowsEl.addEventListener('change', e => {
+    const el = e.target; const idx = parseInt(el.dataset.idx); const field = el.dataset.field;
+    if (isNaN(idx) || !field) return;
+    freeBroadcasts[idx][field] = el.value;
+    if (field === 'cid' && !freeBroadcasts[idx].wati) freeBroadcasts[idx].wati = getWatiFromCid(el.value);
+    if (field === 'type' || field === 'cid') renderFreeRows();
+    updatePreview(); saveData();
+  });
 
   // Preview user-edit detection (reset on typing)
   document.getElementById('preview').addEventListener('input', () => {
