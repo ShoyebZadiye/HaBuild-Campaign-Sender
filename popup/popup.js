@@ -1255,28 +1255,32 @@ async function fillFields(data) {
         ? (parseInt(data.bcTime.split(':')[0]) < 14 ? 'Morning Message' : 'Evening Message')
         : getMsgTimeType();
 
-    // Auto-detect day from campaign name (Day 1 / Day 3 / Day 7 / Day 14)
+    // Auto-detect day from attDayHint (card text), fallback to campaign name
     let autoDay = 'normal';
     if (isAtt) {
-      const dm = (data.campaignName || '').match(/day\s*(\d+)/i);
+      const dayStr = data.attDayHint || data.campaignName || '';
+      const dm = dayStr.match(/day\s*(\d+)/i);
       if (dm) {
         const n = parseInt(dm[1]);
         autoDay = [1,3,7,14].includes(n) ? `Day ${n}` : 'normal';
       }
     }
 
+    // Auto-detect batch from attBatchHint (card text)
+    const autoBatch = (isAtt && data.attBatchHint) ? data.attBatchHint : '1st batch';
+
     // Attendance: match by CID+day (each day is a separate row); others: match by CID only
     let rowIdx = isAtt
       ? freeBroadcasts.findIndex(fb => fb.cid === cid && fb.day === autoDay && cid)
       : freeBroadcasts.findIndex(fb => fb.cid === cid && cid);
     if (rowIdx < 0) rowIdx = freeBroadcasts.findIndex(fb => !fb.cid && !fb.sent);
-    if (rowIdx < 0) { freeBroadcasts.push({ cid:'', type: timeType, batch:'1st batch', day: autoDay, wati:'', sent:'', expected:'', yest:'' }); rowIdx = freeBroadcasts.length - 1; }
+    if (rowIdx < 0) { freeBroadcasts.push({ cid:'', type: timeType, batch: autoBatch, day: autoDay, wati:'', sent:'', expected:'', yest:'' }); rowIdx = freeBroadcasts.length - 1; }
 
     const fb = freeBroadcasts[rowIdx];
     if (cid)  fb.cid  = cid;
     if (wati) fb.wati = wati;
     fb.type = timeType;
-    if (isAtt) fb.day = autoDay;
+    if (isAtt) { fb.day = autoDay; fb.batch = autoBatch; }
     if (data.sentCount)     fb.sent     = data.sentCount;
     if (data.expectedCount) fb.expected = data.expectedCount;
     renderFreeRows(); updatePreview(); saveData();

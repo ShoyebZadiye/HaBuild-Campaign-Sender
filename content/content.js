@@ -70,25 +70,33 @@ window._habuildClickHandler = function(event) {
     const watiMatch = cardText.match(/wati\s+(\d+)/i);
 
     const textLow = cardText.toLowerCase();
-    // Use campaign name for absent/present/sunday detection — cardText may span multiple cards
+    // detectStr: for absent/present/sunday use campaign name only (cardText may span multiple cards)
+    // hintStr: for templateHint always include card text — campaign name may just be "Challenge_101"
     const detectStr = campaignName ? campaignName.toLowerCase() : textLow;
+    const hintStr   = (campaignName.toLowerCase() + ' ' + textLow).trim();
 
     // Extract scheduler name (e.g. "Paid_Hindi_Night_Reminder_Sat") for reliable Hindi detection
-    // Campaign name for Hindi absent ("Consolidate Absent & Night Reminder") has no 'hindi' in it
     const schedulerMatch = cardText.match(/\bPaid_[A-Za-z_]+/);
     const schedulerName  = schedulerMatch ? schedulerMatch[0].toLowerCase() : '';
-    const isHindi = schedulerName.includes('hindi') || detectStr.includes('hindi');
+    const isHindi = schedulerName.includes('hindi') || hintStr.includes('hindi');
 
     let templateHint = '';
-    if (detectStr.includes('renewal') || /x[-+]\d/.test(detectStr)) templateHint = 'renewal';
-    else if (detectStr.includes('pause')) templateHint = 'pause';
-    else if (detectStr.includes('consolidate') || detectStr.includes('night') || schedulerName.includes('night'))
+    if (hintStr.includes('renewal') || /x[-+]\d/.test(hintStr)) templateHint = 'renewal';
+    else if (hintStr.includes('pause')) templateHint = 'pause';
+    else if (hintStr.includes('consolidate') || hintStr.includes('night') || schedulerName.includes('night'))
       templateHint = isHindi ? 'night_hindi' : 'night';
-    else if (detectStr.includes('sunday') && (detectStr.includes('attendance') || detectStr.includes('tracker') || detectStr.includes('milestone')))
+    else if (hintStr.includes('sunday') && (hintStr.includes('attendance') || hintStr.includes('tracker') || hintStr.includes('milestone')))
       templateHint = 'sunday';
-    else if (detectStr.includes('attendance') || detectStr.includes('tracker') || detectStr.includes('milestone'))
+    else if (hintStr.includes('attendance') || hintStr.includes('tracker') || hintStr.includes('milestone'))
       templateHint = 'attendance';
-    else if (detectStr.includes('reminder')) templateHint = 'reminder';
+    else if (hintStr.includes('reminder')) templateHint = 'reminder';
+
+    // Extract day/batch from card text for Attendance broadcasts
+    // (campaign name like "Challenge_101" has no day/batch info)
+    const attDayMatch   = cardText.match(/\bday\s*(\d+)\b/i);
+    const attDayHint    = attDayMatch ? `Day ${attDayMatch[1]}` : '';
+    const attBatchMatch = cardText.match(/(\d+(?:st|nd|rd|th))\s*batch/i);
+    const attBatchHint  = attBatchMatch ? `${attBatchMatch[1].toLowerCase()} batch` : '';
 
     // Detect absent/present/sunday from campaign name (reliable — campaign name is per-card)
     let broadcastType = '';
@@ -120,6 +128,8 @@ window._habuildClickHandler = function(event) {
       expectedCount:  '',
       yesterdayCount: '',
       templateHint,
+      attDayHint,
+      attBatchHint,
       bcTime,
       bcDate,
       extractedAt:    Date.now()
