@@ -42,10 +42,11 @@ window._habuildClickHandler = function(event) {
     }
     if (nameEl) campaignName = nameEl.textContent.replace(/Campaign\s*Name\s*:/i,'').trim();
 
-    // FREE detection: bg-green badge on card OR URL has free indicator
-    const _bgGreen = !!card?.querySelector('[class*="bg-green"]');
-    const _urlFree = /[?&]type=free|[?&]category=free|\/free/i.test(window.location.href);
-    const category = (_bgGreen || _urlFree) ? 'FREE' : 'PAID';
+    // FREE detection: active tab has text "Free" (data-state="active" on role="tab")
+    const _activeTab = document.querySelector('[role="tab"][data-state="active"]');
+    const _tabFree   = _activeTab?.textContent?.trim() === 'Free';
+    const _bgGreen   = !!card?.querySelector('[class*="bg-green"]');
+    const category   = (_tabFree || _bgGreen) ? 'FREE' : 'PAID';
     const cidMatch  = cardText.match(/(?:Challenge[_\s]*|CID\s*)(\d+)/i);
     const watiMatch = cardText.match(/wati\s+(\d+)/i);
 
