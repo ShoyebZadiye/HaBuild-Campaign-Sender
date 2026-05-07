@@ -1356,6 +1356,7 @@ async function fillFields(data) {
             Math.abs(a.mins - bcMins) < Math.abs(b.mins - bcMins) ? a : b
           );
           setVal('extraWaterTime', closest.val);
+          setVal('extraWaterWati', closest.val === '08:15 PM' ? 'only WATI 28' : 'all paid WATIs except 28');
         }
         if (data.sentCount) { setVal('extraWaterSent', data.sentCount); filledSlots.add('extraWaterSent'); }
         saveData();
