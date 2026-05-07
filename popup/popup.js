@@ -1339,9 +1339,23 @@ async function fillFields(data) {
     // Auto-detect batch from attBatchHint (card text)
     const autoBatch = (isAtt && data.attBatchHint) ? data.attBatchHint : '1st batch';
 
+    // ── RESET STALE ROWS (like PAID resets on each Stats click) ──────────
+    // Attendance same CID → keep all 4 day slots (accumulate within session)
+    // Morning/Evening Message → keep rows of same type (multi-CID in one update)
+    // All other types (Bonus/Quiz/Night/Payment etc.) → full reset like PAID
+    if (isAtt) {
+      const sameAtt = freeBroadcasts.some(fb => fb.type === 'Attendance' && fb.cid === cid);
+      if (!sameAtt) freeBroadcasts = []; // new CID → clear old rows
+    } else if (timeType === 'Morning Message' || timeType === 'Evening Message') {
+      // Clear only if current rows are a different type (allow multi-CID accumulation)
+      if (freeBroadcasts.some(fb => fb.type !== timeType && (fb.cid || fb.sent)))
+        freeBroadcasts = [];
+    } else {
+      freeBroadcasts = []; // single-entry types always reset
+    }
+
     // Attendance: first click for a CID auto-creates all 4 day slots (Normal, Day 1, Day 3, Day 7)
     if (isAtt && cid && !freeBroadcasts.some(fb => fb.type === 'Attendance' && fb.cid === cid)) {
-      freeBroadcasts = freeBroadcasts.filter(fb => fb.cid || fb.sent); // drop empty placeholder
       const watiVal = wati || getWatiFromCid(cid);
       ['normal', 'Day 1', 'Day 3', 'Day 7'].forEach(d =>
         freeBroadcasts.push({ cid, type:'Attendance', batch:'1st batch', day:d, wati:watiVal, sent:'', expected:'', yest:'' })
