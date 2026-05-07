@@ -1375,13 +1375,16 @@ async function fillFields(data) {
     }
 
     // Find the specific row to fill
-    let rowIdx = isAtt && cid
-      ? freeBroadcasts.findIndex(fb => fb.type === 'Attendance' && fb.cid === cid && fb.day === autoDay)
-      : freeBroadcasts.findIndex(fb => fb.cid === cid && cid);
-    // Fallback: first empty Attendance slot for this CID, then any empty row, then push new
-    if (rowIdx < 0 && isAtt && cid)
-      rowIdx = freeBroadcasts.findIndex(fb => fb.type === 'Attendance' && fb.cid === cid && !fb.sent);
-    if (rowIdx < 0) rowIdx = freeBroadcasts.findIndex(fb => !fb.cid && !fb.sent);
+    let rowIdx;
+    if (isAtt && cid) {
+      rowIdx = freeBroadcasts.findIndex(fb => fb.type === 'Attendance' && fb.cid === cid && fb.day === autoDay);
+      if (rowIdx < 0) rowIdx = freeBroadcasts.findIndex(fb => fb.type === 'Attendance' && fb.cid === cid && !fb.sent);
+    } else {
+      // Match by CID + type — Night Present and Night Absent share same CID, must not cross-fill
+      rowIdx = cid ? freeBroadcasts.findIndex(fb => fb.cid === cid && fb.type === timeType) : -1;
+      if (rowIdx < 0) rowIdx = freeBroadcasts.findIndex(fb => fb.type === timeType && !fb.cid && !fb.sent);
+      if (rowIdx < 0) rowIdx = freeBroadcasts.findIndex(fb => !fb.cid && !fb.sent);
+    }
     if (rowIdx < 0) { freeBroadcasts.push({ cid:'', type:timeType, batch:autoBatch, day:autoDay, wati:'', sent:'', expected:'', yest:'' }); rowIdx = freeBroadcasts.length - 1; }
 
     const fb = freeBroadcasts[rowIdx];
