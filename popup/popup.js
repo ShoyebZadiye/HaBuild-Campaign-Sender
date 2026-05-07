@@ -678,7 +678,11 @@ function updatePreview() {
 
   let msg = '';
   if (currentType === 'FREE') {
-    const rows = freeBroadcasts.map(fb => {
+    // Only include rows that have a sent count (skip empty pre-created slots)
+    const filled = freeBroadcasts.filter(fb => fb.sent || fb.cid);
+    if (!filled.length) { msg = ''; preview.value = msg; return; }
+
+    const rows = filled.map(fb => {
       const cid  = fb.cid  || '?';
       const sent = parseInt(fb.sent)     || 0;
       const exp  = parseInt(fb.expected) || 0;
@@ -700,9 +704,10 @@ function updatePreview() {
       return line;
     }).join('\n\n');
 
-    const attRows = freeBroadcasts.filter(fb => fb.type === 'Attendance');
-    const totalAtt = attRows.length > 1
-      ? '\n\nTotal attendance: ' + attRows.reduce((s, fb) => s + (parseInt(fb.sent) || 0), 0)
+    // Total attendance: sum of filled attendance rows with sent > 0
+    const filledAtt = filled.filter(fb => fb.type === 'Attendance' && parseInt(fb.sent) > 0);
+    const totalAtt  = filledAtt.length > 1
+      ? '\n\nTotal attendance: ' + filledAtt.reduce((s, fb) => s + (parseInt(fb.sent) || 0), 0)
       : '';
     msg = `*UPDATE: ✅*\n\n${rows}${totalAtt}`;
   } else {
@@ -1269,18 +1274,33 @@ async function fillFields(data) {
     // Auto-detect batch from attBatchHint (card text)
     const autoBatch = (isAtt && data.attBatchHint) ? data.attBatchHint : '1st batch';
 
-    // Attendance: match by CID+day (each day is a separate row); others: match by CID only
-    let rowIdx = isAtt
-      ? freeBroadcasts.findIndex(fb => fb.cid === cid && fb.day === autoDay && cid)
+    // Attendance: first click for a CID auto-creates all 4 day slots (Normal, Day 1, Day 3, Day 7)
+    if (isAtt && cid && !freeBroadcasts.some(fb => fb.type === 'Attendance' && fb.cid === cid)) {
+      freeBroadcasts = freeBroadcasts.filter(fb => fb.cid || fb.sent); // drop empty placeholder
+      const watiVal = wati || getWatiFromCid(cid);
+      ['normal', 'Day 1', 'Day 3', 'Day 7'].forEach(d =>
+        freeBroadcasts.push({ cid, type:'Attendance', batch:'1st batch', day:d, wati:watiVal, sent:'', expected:'', yest:'' })
+      );
+    }
+
+    // Find the specific row to fill
+    let rowIdx = isAtt && cid
+      ? freeBroadcasts.findIndex(fb => fb.type === 'Attendance' && fb.cid === cid && fb.day === autoDay)
       : freeBroadcasts.findIndex(fb => fb.cid === cid && cid);
+    // Fallback: first empty Attendance slot for this CID, then any empty row, then push new
+    if (rowIdx < 0 && isAtt && cid)
+      rowIdx = freeBroadcasts.findIndex(fb => fb.type === 'Attendance' && fb.cid === cid && !fb.sent);
     if (rowIdx < 0) rowIdx = freeBroadcasts.findIndex(fb => !fb.cid && !fb.sent);
-    if (rowIdx < 0) { freeBroadcasts.push({ cid:'', type: timeType, batch: autoBatch, day: autoDay, wati:'', sent:'', expected:'', yest:'' }); rowIdx = freeBroadcasts.length - 1; }
+    if (rowIdx < 0) { freeBroadcasts.push({ cid:'', type:timeType, batch:autoBatch, day:autoDay, wati:'', sent:'', expected:'', yest:'' }); rowIdx = freeBroadcasts.length - 1; }
 
     const fb = freeBroadcasts[rowIdx];
-    if (cid)  fb.cid  = cid;
-    if (wati) fb.wati = wati;
+    if (cid) fb.cid = cid;
+    fb.wati = wati || fb.wati || getWatiFromCid(cid);
     fb.type = timeType;
-    if (isAtt) { fb.day = autoDay; fb.batch = autoBatch; }
+    if (isAtt) {
+      fb.day = autoDay;
+      if (autoBatch) fb.batch = autoBatch;
+    }
     if (data.sentCount)     fb.sent     = data.sentCount;
     if (data.expectedCount) fb.expected = data.expectedCount;
     renderFreeRows(); updatePreview(); saveData();
