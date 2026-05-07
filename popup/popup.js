@@ -2023,6 +2023,10 @@ function loadSavedData() {
       document.body.classList.add('dark');
       document.getElementById('darkBtn').textContent = '☀️';
     }
+
+    // Compute freshness early — used to gate freeBroadcasts restore below
+    const freshExtract = r.autoExtracted && (Date.now() - r.autoExtracted.extractedAt < 120000);
+
     if (r.formData) {
       const d = r.formData;
       // Restore type directly (avoid triggering saveData mid-restore)
@@ -2037,7 +2041,10 @@ function loadSavedData() {
         if (d[f] !== undefined) { const el = document.getElementById(f); if (el) el.value = d[f]; }
       });
       if (d.paidCamps && d.paidCamps.length) paidCamps = d.paidCamps;
-      if (d.freeBroadcasts && d.freeBroadcasts.length) freeBroadcasts = d.freeBroadcasts;
+      // Only restore freeBroadcasts when a fresh Stats extract is coming in.
+      // fillFields will then clear stale rows and update correctly.
+      // Without a fresh extract, show the clean default — prevents old rows from accumulating.
+      if (freshExtract && d.freeBroadcasts && d.freeBroadcasts.length) freeBroadcasts = d.freeBroadcasts;
       renderFreeRows();
       if (d.lastBcDate) lastBcDate = d.lastBcDate;
       if (d.lastBcTime) lastBcTime = d.lastBcTime;
@@ -2083,8 +2090,6 @@ function loadSavedData() {
     // Render everything correctly
     onTemplateChange();
 
-    // Auto-fill only if Stats was clicked within last 2 minutes
-    const freshExtract = r.autoExtracted && (Date.now() - r.autoExtracted.extractedAt < 120000);
     // Wipe stale autoExtracted (>10 min) so it can't pollute future extracts
     if (r.autoExtracted && !freshExtract && Date.now() - r.autoExtracted.extractedAt > 600000) {
       chrome.storage.local.remove(['autoExtracted']);
