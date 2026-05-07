@@ -686,15 +686,25 @@ function updatePreview() {
       const wati = fb.wati || getWatiFromCid(fb.cid) || 'all WATIs';
       let line;
       if (fb.type === 'Attendance') {
-        const dayPart = fb.day === 'normal' ? 'normal' : fb.day;
-        line = `CID ${cid} ${fb.batch} ${dayPart} Attendance sent to ${sent} users on ${wati}.\nExpected count: ${exp}\nDifference:  ${diff}`;
+        if (fb.day === 'normal') {
+          const batchStr = fb.batch.replace(/\b\w/g, c => c.toUpperCase());
+          line = `CID ${cid} ${batchStr} Normal Attendance sent to ${sent} users on ${wati}`;
+        } else {
+          line = `CID ${cid} ${fb.day} Attendance sent to ${sent} users on ${wati}`;
+        }
       } else {
-        line = `CID ${cid} ${fb.type} sent to ${sent} users on ${wati}.\nExpected count: ${exp}\nDifference:  ${diff}`;
+        line = `CID ${cid} ${fb.type} sent to ${sent} users on ${wati}.`;
+        if (parseInt(fb.yest) > 0) line += `\nYesterday's Count : ${fb.yest}`;
       }
-      if (parseInt(fb.yest) > 0) line += `\nYesterday's Count : ${fb.yest}`;
+      line += `\nExpected count: ${exp}\nDifference:  ${diff}`;
       return line;
     }).join('\n\n');
-    msg = `*UPDATE: ✅*\n\n${rows}`;
+
+    const attRows = freeBroadcasts.filter(fb => fb.type === 'Attendance');
+    const totalAtt = attRows.length > 1
+      ? '\n\nTotal attendance: ' + attRows.reduce((s, fb) => s + (parseInt(fb.sent) || 0), 0)
+      : '';
+    msg = `*UPDATE: ✅*\n\n${rows}${totalAtt}`;
   } else {
     msg = buildPaidMessage();
   }
@@ -1255,10 +1265,12 @@ async function fillFields(data) {
       }
     }
 
-    // Find existing row for this CID, or use first empty row, or add new
-    let rowIdx = freeBroadcasts.findIndex(fb => fb.cid === cid && cid);
+    // Attendance: match by CID+day (each day is a separate row); others: match by CID only
+    let rowIdx = isAtt
+      ? freeBroadcasts.findIndex(fb => fb.cid === cid && fb.day === autoDay && cid)
+      : freeBroadcasts.findIndex(fb => fb.cid === cid && cid);
     if (rowIdx < 0) rowIdx = freeBroadcasts.findIndex(fb => !fb.cid && !fb.sent);
-    if (rowIdx < 0) { freeBroadcasts.push({ cid:'', type: timeType, batch:'1st batch', day:'normal', wati:'', sent:'', expected:'', yest:'' }); rowIdx = freeBroadcasts.length - 1; }
+    if (rowIdx < 0) { freeBroadcasts.push({ cid:'', type: timeType, batch:'1st batch', day: autoDay, wati:'', sent:'', expected:'', yest:'' }); rowIdx = freeBroadcasts.length - 1; }
 
     const fb = freeBroadcasts[rowIdx];
     if (cid)  fb.cid  = cid;
@@ -1268,17 +1280,7 @@ async function fillFields(data) {
     if (data.sentCount)     fb.sent     = data.sentCount;
     if (data.expectedCount) fb.expected = data.expectedCount;
     renderFreeRows(); updatePreview(); saveData();
-
-    if (data.sentCount && cid) {
-      showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
-      const msgname = `FREE_CID_${cid}_${timeType.replace(/\s+/g,'_')}`;
-      const yestVal = await fetchYesterdayCount(msgname, timeStr);
-      if (yestVal !== null) {
-        freeBroadcasts[rowIdx].yest = String(yestVal);
-        renderFreeRows(); updatePreview(); saveData();
-        showFeedback('✅ Free broadcast fill hua!', 'success');
-      } else showFeedback('✅ Free fill hua! (Yesterday manually dalo)', 'info');
-    }
+    if (data.sentCount) showFeedback('✅ Free broadcast fill hua!', 'success');
   } else {
     // Auto-detect template from card hint + campaign name + time
     const detected = autoDetectTemplate(data);
@@ -2220,6 +2222,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('scanBtn').addEventListener('click', scanPage);
   document.getElementById('saveBtn').addEventListener('click', saveToDashboard);
   document.getElementById('addCampBtn').addEventListener('click', addCamp);
+  document.getElementById('addFreeRowBtn').addEventListener('click', addFreeRow);
 
   // Preview user-edit detection (reset on typing)
   document.getElementById('preview').addEventListener('input', () => {

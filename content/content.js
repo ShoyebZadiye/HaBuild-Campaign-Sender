@@ -42,16 +42,12 @@ window._habuildClickHandler = function(event) {
     }
     if (nameEl) campaignName = nameEl.textContent.replace(/Campaign\s*Name\s*:/i,'').trim();
 
-    // FREE detection: check active tab by id pattern OR aria-controls OR text
+    // FREE detection: check ALL active tabs (querySelectorAll avoids inner day-tabs shadowing)
     const _bgGreen = !!card?.querySelector('[class*="bg-green"]');
-    const _tabFree = !!(
-      document.querySelector('[id*="trigger-Free"][data-state="active"]') ||
-      document.querySelector('[aria-controls*="content-Free"][aria-selected="true"]') ||
-      (() => {
-        const a = document.querySelector('[role="tab"][data-state="active"]');
-        return a && a.textContent.trim().startsWith('Free');
-      })()
-    );
+    const _tabFree = Array.from(document.querySelectorAll('[role="tab"]')).some(t => {
+      const active = t.getAttribute('data-state') === 'active' || t.getAttribute('aria-selected') === 'true';
+      return active && t.textContent.trim().toLowerCase() === 'free';
+    });
     const category = (_bgGreen || _tabFree) ? 'FREE' : 'PAID';
     const cidMatch  = cardText.match(/(?:Challenge[_\s]*|CID\s*)(\d+)/i);
     const watiMatch = cardText.match(/wati\s+(\d+)/i);
