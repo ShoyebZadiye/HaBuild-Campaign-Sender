@@ -1237,9 +1237,23 @@ async function fillFields(data) {
   if (currentType === 'FREE') {
     const cid  = data.cid || '';
     const wati = data.wati || (cid ? getWatiFromCid(cid) : '');
-    const timeType = data.bcTime
-      ? (parseInt(data.bcTime.split(':')[0]) < 14 ? 'Morning Message' : 'Evening Message')
-      : getMsgTimeType();
+
+    // Auto-detect type: Attendance from hint, else Morning/Evening from time
+    const isAtt = data.templateHint === 'attendance';
+    const timeType = isAtt ? 'Attendance'
+      : data.bcTime
+        ? (parseInt(data.bcTime.split(':')[0]) < 14 ? 'Morning Message' : 'Evening Message')
+        : getMsgTimeType();
+
+    // Auto-detect day from campaign name (Day 1 / Day 3 / Day 7 / Day 14)
+    let autoDay = 'normal';
+    if (isAtt) {
+      const dm = (data.campaignName || '').match(/day\s*(\d+)/i);
+      if (dm) {
+        const n = parseInt(dm[1]);
+        autoDay = [1,3,7,14].includes(n) ? `Day ${n}` : 'normal';
+      }
+    }
 
     // Find existing row for this CID, or use first empty row, or add new
     let rowIdx = freeBroadcasts.findIndex(fb => fb.cid === cid && cid);
@@ -1247,11 +1261,12 @@ async function fillFields(data) {
     if (rowIdx < 0) { freeBroadcasts.push({ cid:'', type: timeType, batch:'1st batch', day:'normal', wati:'', sent:'', expected:'', yest:'' }); rowIdx = freeBroadcasts.length - 1; }
 
     const fb = freeBroadcasts[rowIdx];
-    if (cid)               fb.cid      = cid;
-    if (wati)              fb.wati     = wati;
+    if (cid)  fb.cid  = cid;
+    if (wati) fb.wati = wati;
     fb.type = timeType;
-    if (data.sentCount)    fb.sent     = data.sentCount;
-    if (data.expectedCount)fb.expected = data.expectedCount;
+    if (isAtt) fb.day = autoDay;
+    if (data.sentCount)     fb.sent     = data.sentCount;
+    if (data.expectedCount) fb.expected = data.expectedCount;
     renderFreeRows(); updatePreview(); saveData();
 
     if (data.sentCount && cid) {
