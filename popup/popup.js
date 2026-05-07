@@ -1339,19 +1339,13 @@ async function fillFields(data) {
     // Auto-detect batch from attBatchHint (card text)
     const autoBatch = (isAtt && data.attBatchHint) ? data.attBatchHint : '1st batch';
 
-    // ── RESET STALE ROWS (like PAID resets on each Stats click) ──────────
-    // Attendance same CID → keep all 4 day slots (accumulate within session)
-    // Morning/Evening Message → keep rows of same type (multi-CID in one update)
-    // All other types (Bonus/Quiz/Night/Payment etc.) → full reset like PAID
-    if (isAtt) {
-      const sameAtt = freeBroadcasts.some(fb => fb.type === 'Attendance' && fb.cid === cid);
-      if (!sameAtt) freeBroadcasts = []; // new CID → clear old rows
-    } else if (timeType === 'Morning Message' || timeType === 'Evening Message') {
-      // Clear only if current rows are a different type (allow multi-CID accumulation)
-      if (freeBroadcasts.some(fb => fb.type !== timeType && (fb.cid || fb.sent)))
-        freeBroadcasts = [];
+    // ── RESET: every Stats click = fresh start (exactly like PAID) ──────────
+    // Only exception: Attendance same CID keeps its 4 day slots so Normal/Day1/Day3/Day7
+    // can be filled one-by-one without losing previously filled days.
+    if (isAtt && cid && freeBroadcasts.some(fb => fb.type === 'Attendance' && fb.cid === cid)) {
+      freeBroadcasts = freeBroadcasts.filter(fb => fb.type === 'Attendance' && fb.cid === cid);
     } else {
-      freeBroadcasts = []; // single-entry types always reset
+      freeBroadcasts = [];
     }
 
     // Attendance: first click for a CID auto-creates all 4 day slots (Normal, Day 1, Day 3, Day 7)
@@ -2024,7 +2018,6 @@ function loadSavedData() {
       document.getElementById('darkBtn').textContent = '☀️';
     }
 
-    // Compute freshness early — used to gate freeBroadcasts restore below
     const freshExtract = r.autoExtracted && (Date.now() - r.autoExtracted.extractedAt < 120000);
 
     if (r.formData) {
@@ -2041,10 +2034,7 @@ function loadSavedData() {
         if (d[f] !== undefined) { const el = document.getElementById(f); if (el) el.value = d[f]; }
       });
       if (d.paidCamps && d.paidCamps.length) paidCamps = d.paidCamps;
-      // Only restore freeBroadcasts when a fresh Stats extract is coming in.
-      // fillFields will then clear stale rows and update correctly.
-      // Without a fresh extract, show the clean default — prevents old rows from accumulating.
-      if (freshExtract && d.freeBroadcasts && d.freeBroadcasts.length) freeBroadcasts = d.freeBroadcasts;
+      if (d.freeBroadcasts && d.freeBroadcasts.length) freeBroadcasts = d.freeBroadcasts;
       renderFreeRows();
       if (d.lastBcDate) lastBcDate = d.lastBcDate;
       if (d.lastBcTime) lastBcTime = d.lastBcTime;
