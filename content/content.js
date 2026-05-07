@@ -89,7 +89,11 @@ window._habuildClickHandler = function(event) {
       templateHint = 'sunday';
     else if (hintStr.includes('attendance') || hintStr.includes('tracker') || hintStr.includes('milestone'))
       templateHint = 'attendance';
-    else if (hintStr.includes('reminder')) templateHint = 'reminder';
+    else if (hintStr.includes('bonus'))                                 templateHint = 'bonus';
+    else if (hintStr.includes('orientation') || hintStr.includes('orient')) templateHint = 'orientation';
+    else if (hintStr.includes('quiz') || hintStr.includes('video link'))    templateHint = 'quiz';
+    else if (hintStr.includes('payment'))                               templateHint = 'payment';
+    else if (hintStr.includes('reminder'))                              templateHint = 'reminder';
 
     // Extract day/batch from card text for Attendance broadcasts
     // (campaign name like "Challenge_101" has no day/batch info)

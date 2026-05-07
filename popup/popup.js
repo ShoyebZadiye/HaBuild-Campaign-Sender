@@ -224,6 +224,15 @@ function getMsgTimeType() {
   return new Date().getHours() < 14 ? 'Morning Message' : 'Evening Message';
 }
 
+function formatTimePrefix(hhmm) {
+  const m = (hhmm || '').match(/^(\d+):(\d+)/);
+  if (!m) return '';
+  let h = parseInt(m[1]); const min = parseInt(m[2]);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  if (h > 12) h -= 12; else if (h === 0) h = 12;
+  return min === 0 ? `${h}${ampm}` : `${h}:${String(min).padStart(2,'0')}${ampm}`;
+}
+
 function renderFreeRows() {
   const container = document.getElementById('freeRows');
   if (!container) return;
@@ -249,9 +258,15 @@ function renderFreeRows() {
         <div ${colStyle('1 1 110px')}>
           ${lbl('Type')}
           <select ${selStyle} onchange="freeBroadcasts[${i}].type=this.value;renderFreeRows();updatePreview();saveData();">
-            <option value="Morning Message" ${fb.type==='Morning Message'?'selected':''}>🌅 Morning</option>
-            <option value="Evening Message" ${fb.type==='Evening Message'?'selected':''}>🌙 Evening</option>
-            <option value="Attendance" ${fb.type==='Attendance'?'selected':''}>📋 Attendance</option>
+            <option value="Morning Message"  ${fb.type==='Morning Message' ?'selected':''}>🌅 Morning</option>
+            <option value="Evening Message"  ${fb.type==='Evening Message' ?'selected':''}>🌙 Evening</option>
+            <option value="Attendance"       ${fb.type==='Attendance'      ?'selected':''}>📋 Attendance</option>
+            <option value="Bonus"            ${fb.type==='Bonus'           ?'selected':''}>🎁 Bonus</option>
+            <option value="Orientation"      ${fb.type==='Orientation'     ?'selected':''}>📚 Orientation</option>
+            <option value="Quiz"             ${fb.type==='Quiz'            ?'selected':''}>📝 Quiz</option>
+            <option value="Night Present"    ${fb.type==='Night Present'   ?'selected':''}>🌙 Night Present</option>
+            <option value="Night Absent"     ${fb.type==='Night Absent'    ?'selected':''}>🌑 Night Absent</option>
+            <option value="Payment"          ${fb.type==='Payment'         ?'selected':''}>💳 Payment</option>
           </select>
         </div>
         ${isAtt ? `
@@ -678,38 +693,72 @@ function updatePreview() {
 
   let msg = '';
   if (currentType === 'FREE') {
-    // Only include rows that have a sent count (skip empty pre-created slots)
-    const filled = freeBroadcasts.filter(fb => fb.sent || fb.cid);
+    // Attendance rows: show all (even 0-count) once CID is set
+    // Other types: only rows with CID or sent count
+    const filled = freeBroadcasts.filter(fb =>
+      fb.type === 'Attendance' ? !!fb.cid : (fb.sent || fb.cid)
+    );
     if (!filled.length) { msg = ''; preview.value = msg; return; }
 
-    const rows = filled.map(fb => {
+    const rowLines = [];
+    let lastNightPresent = null;
+    for (const fb of filled) {
       const cid  = fb.cid  || '?';
       const sent = parseInt(fb.sent)     || 0;
       const exp  = parseInt(fb.expected) || 0;
       const diff = Math.abs(exp - sent);
       const wati = fb.wati || getWatiFromCid(fb.cid) || 'all WATIs';
       let line;
+
       if (fb.type === 'Attendance') {
         if (fb.day === 'normal') {
-          const batchStr = fb.batch.replace(/\b\w/g, c => c.toUpperCase());
+          const batchStr = (fb.batch || '1st batch').replace(/\b\w/g, c => c.toUpperCase());
           line = `CID ${cid} ${batchStr} Normal Attendance sent to ${sent} users on ${wati}`;
         } else {
           line = `CID ${cid} ${fb.day} Attendance sent to ${sent} users on ${wati}`;
         }
+        line += `\nExpected count: ${exp}\nDifference:  ${diff}`;
+
+      } else if (fb.type === 'Bonus') {
+        line = `CID ${cid} Bonus live sent to ${sent} users on ${wati}`;
+        line += `\nExpected count: ${exp}\nDifference:  ${diff}`;
+
+      } else if (fb.type === 'Orientation') {
+        line = `CID ${cid} Orientation Reminder sent to ${sent} users on ${wati}.`;
+        line += `\nExpected count: ${exp}\nDifference:  ${diff}`;
+
+      } else if (fb.type === 'Payment') {
+        line = `CID ${cid} Payment Message sent to ${sent} users on ${wati}.`;
+        line += `\nExpected count: ${exp}\nDifference:  ${diff}`;
+
+      } else if (fb.type === 'Quiz') {
+        const tp = lastBcTime ? formatTimePrefix(lastBcTime) + ' ' : '';
+        line = `CID ${cid}\n${tp}quiz Message sent to ${sent} users on ${wati}.`;
+        line += `\nExpected count: ${exp}\nDifference:  ${diff}`;
+
+      } else if (fb.type === 'Night Present') {
+        lastNightPresent = fb;
+        line = `CID ${cid}\nPresent Message sent to ${sent} users on ${wati}`;
+        line += `\nExpected count: ${exp}\nDifference:  ${diff}`;
+
+      } else if (fb.type === 'Night Absent') {
+        line = `Absent Message sent to ${sent} users on ${wati}`;
+        line += `\nExpected count: ${exp}\nDifference:  ${diff}`;
+        if (lastNightPresent && lastNightPresent.cid === fb.cid) {
+          line += `\n\nTotal count: ${(parseInt(lastNightPresent.sent)||0) + sent}`;
+        }
+        lastNightPresent = null;
+
       } else {
+        // Morning Message / Evening Message
         line = `CID ${cid} ${fb.type} sent to ${sent} users on ${wati}.`;
+        line += `\nExpected count: ${exp}\nDifference:  ${diff}`;
         if (parseInt(fb.yest) > 0) line += `\nYesterday's Count : ${fb.yest}`;
       }
-      line += `\nExpected count: ${exp}\nDifference:  ${diff}`;
-      return line;
-    }).join('\n\n');
 
-    // Total attendance: sum of filled attendance rows with sent > 0
-    const filledAtt = filled.filter(fb => fb.type === 'Attendance' && parseInt(fb.sent) > 0);
-    const totalAtt  = filledAtt.length > 1
-      ? '\n\nTotal attendance: ' + filledAtt.reduce((s, fb) => s + (parseInt(fb.sent) || 0), 0)
-      : '';
-    msg = `*UPDATE: ✅*\n\n${rows}${totalAtt}`;
+      rowLines.push(line);
+    }
+    msg = `*UPDATE: ✅*\n\n${rowLines.join('\n\n')}`;
   } else {
     msg = buildPaidMessage();
   }
@@ -1253,12 +1302,19 @@ async function fillFields(data) {
     const cid  = data.cid || '';
     const wati = data.wati || (cid ? getWatiFromCid(cid) : '');
 
-    // Auto-detect type: Attendance from hint, else Morning/Evening from time
+    // Auto-detect type from templateHint + broadcastType
     const isAtt = data.templateHint === 'attendance';
-    const timeType = isAtt ? 'Attendance'
-      : data.bcTime
-        ? (parseInt(data.bcTime.split(':')[0]) < 14 ? 'Morning Message' : 'Evening Message')
-        : getMsgTimeType();
+    let timeType;
+    if      (isAtt)                                                 timeType = 'Attendance';
+    else if (data.templateHint === 'bonus')                         timeType = 'Bonus';
+    else if (data.templateHint === 'orientation')                   timeType = 'Orientation';
+    else if (data.templateHint === 'quiz')                          timeType = 'Quiz';
+    else if (data.templateHint === 'payment')                       timeType = 'Payment';
+    else if (data.templateHint === 'night' || data.templateHint === 'night_hindi')
+      timeType = data.broadcastType === 'absent' ? 'Night Absent' : 'Night Present';
+    else timeType = data.bcTime
+      ? (parseInt(data.bcTime.split(':')[0]) < 14 ? 'Morning Message' : 'Evening Message')
+      : getMsgTimeType();
 
     // Auto-detect day from attDayHint (card text), fallback to campaign name
     let autoDay = 'normal';
