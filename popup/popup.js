@@ -336,7 +336,7 @@ function buildPaidMessage() {
   if (tpl === 'standard') {
     const rows = paidCamps.filter(c => c.name || c.sent);
     if (!rows.length) return '— Campaign details bharo —';
-    let msg   = '*UPDATE :✅*';
+    let msg   = '*UPDATE: ✅*';
     let total = 0;
     rows.forEach(c => {
       const s    = parseInt(c.sent)     || 0;
@@ -361,7 +361,7 @@ function buildPaidMessage() {
       const watiW = document.getElementById('extraWaterWati')?.value || 'all paid WATIs';
       const sent = parseInt(document.getElementById('extraWaterSent')?.value) || 0;
       const yestW = document.getElementById('extraWaterYest')?.value || '';
-      let msg = `*UPDATE:* ✅\n*${time} Water reminder* sent to ${sent} users on ${watiW}`;
+      let msg = `*UPDATE: ✅*\n\n*${time} Water reminder* sent to ${sent} users on ${watiW}`;
       if (yestW) msg += `\nYesterday's Count : ${yestW}`;
       return msg;
     }
@@ -371,7 +371,7 @@ function buildPaidMessage() {
       const exp   = parseInt(document.getElementById('extraEmailExp')?.value) || 0;
       const diff  = exp > 0 ? Math.abs(exp - sent) : 0;
       const yestE = document.getElementById('extraEmailYest')?.value || '';
-      let msg = `*UPDATE:* ✅\n${batch} Batch *Paid_YE_Email_Reminder* sent to ${sent} users.\nExpected: ${exp} Difference: ${diff}`;
+      let msg = `*UPDATE: ✅*\n\n${batch} Batch *Paid_YE_Email_Reminder* sent to ${sent} users.\nExpected: ${exp} Difference: ${diff}`;
       if (yestE) msg += `\nYesterday's Count : ${yestE}`;
       return msg;
     }
@@ -379,7 +379,7 @@ function buildPaidMessage() {
       const batch = document.getElementById('extraSEBatch')?.value || '1st';
       const sent  = parseInt(document.getElementById('extraSESent')?.value) || 0;
       const watiS = document.getElementById('extraSEWati')?.value || 'wati 28';
-      return `*UPDATE :✅*\nPAID ${batch} BATCH Attendance tracker sent to ${sent} users on ${watiS}`;
+      return `*UPDATE: ✅*\n\n*PAID SE* ${batch} BATCH Attendance tracker sent to ${sent} users on ${watiS}`;
     }
     return '— Extra Session type select karo —';
   }
@@ -388,7 +388,7 @@ function buildPaidMessage() {
     const c    = paidCamps[0] || {};
     const name = c.name || '';
     const s    = parseInt(c.sent) || 0;
-    let msg = `*UPDATE:*${name ? ' ' + name : ''} sent to ${s} users on ${wati}.`;
+    let msg = `*UPDATE: ✅*\n\n${name ? '*' + name + '* sent' : 'sent'} to ${s} users on ${wati}.`;
     if (c.expected) {
       const e = parseInt(c.expected);
       msg += `\nExpected: ${e}`;
@@ -403,14 +403,14 @@ function buildPaidMessage() {
     const pE = parseInt(val('pauseExpected'))  || 0;
     const uS = parseInt(val('unpauseSent'))    || 0;
     const uE = parseInt(val('unpauseExpected'))|| 0;
-    return `*UPDATE: ✅*\n*Pause Subscription Message* sent to ${pS} users on all paid WATIs\nExpected count: ${pE}\nDifference: ${Math.abs(pE - pS)}\n\n*Unpause Subscription Message* sent to ${uS} users on all paid WATIs\nExpected count: ${uE}\nDifference: ${Math.abs(uE - uS)}`;
+    return `*UPDATE: ✅*\n\n*Pause Subscription Message* sent to ${pS} users on all paid WATIs\nExpected count: ${pE}\nDifference: ${Math.abs(pE - pS)}\n\n*Unpause Subscription Message* sent to ${uS} users on all paid WATIs\nExpected count: ${uE}\nDifference: ${Math.abs(uE - uS)}`;
   }
 
   if (tpl === 'renewal_minus') {
     const x1 = parseInt(val('renewX1')) || 0;
     const x2 = parseInt(val('renewX2')) || 0;
     const x3 = parseInt(val('renewX3')) || 0;
-    return `*UPDATE: ✅*\n\n*Paid*\nX-1 Renewal message sent to ${x1} users on all WATIs.\nX-2 Renewal message sent to ${x2} users on all WATIs.\nX-3 Renewal message sent to ${x3} users on all WATIs.`;
+    return `*UPDATE: ✅*\n\n*Paid*\n*X-1 Renewal message* sent to ${x1} users on all WATIs.\n*X-2 Renewal message* sent to ${x2} users on all WATIs.\n*X-3 Renewal message* sent to ${x3} users on all WATIs.`;
   }
 
   if (tpl === 'renewal_plus') {
@@ -418,7 +418,7 @@ function buildPaidMessage() {
     const x1 = parseInt(val('renewXp1')) || 0;
     const x2 = parseInt(val('renewXp2')) || 0;
     const x3 = parseInt(val('renewXp3')) || 0;
-    return `*UPDATE:*\n\n*Paid*\nX Renewal message sent to ${x} users on all WATIs.\nX+1 Renewal message sent to ${x1} users on all WATIs.\nX+2 Renewal message sent to ${x2} users on all WATIs.\nX+3 Renewal message sent to ${x3} users on all WATIs.`;
+    return `*UPDATE: ✅*\n\n*Paid*\n*X Renewal message* sent to ${x} users on all WATIs.\n*X+1 Renewal message* sent to ${x1} users on all WATIs.\n*X+2 Renewal message* sent to ${x2} users on all WATIs.\n*X+3 Renewal message* sent to ${x3} users on all WATIs.`;
   }
 
   if (tpl === 'attendance') {
@@ -430,12 +430,12 @@ function buildPaidMessage() {
     ];
     const rows = slots.filter(s => parseInt(val(s.sId)) > 0);
     if (!rows.length) return '— Attendance counts bharo —';
-    let msg = '*UPDATE* :✅', total = 0;
+    let msg = '*UPDATE: ✅*', total = 0;
     rows.forEach(s => {
       const sent = parseInt(val(s.sId)) || 0;
       const exp  = parseInt(val(s.eId)) || 0;
       const diff = exp > 0 ? Math.abs(exp - sent) : '';
-      msg += `\n\nPAID ${batch} BATCH ${s.name} sent to ${sent} users on ${s.w}.`;
+      msg += `\n\nPAID ${batch} BATCH *${s.name}* sent to ${sent} users on ${s.w}.`;
       msg += `\nExpected: ${exp} Difference: ${diff !== '' ? diff : 0}`;
       total += sent;
     });
@@ -463,12 +463,12 @@ function buildPaidMessage() {
     ];
     const rows = slots.filter(s => parseInt(val(s.sId)) > 0);
     if (!rows.length) return '— Sunday Attendance counts bharo —';
-    let msg = `*UPDATE:*✅${timeLabel ? '*' + timeLabel + '*' : ''}`, total = 0;
+    let msg = `*UPDATE: ✅*${timeLabel ? ' *' + timeLabel + '*' : ''}`, total = 0;
     rows.forEach(s => {
       const sent = parseInt(val(s.sId)) || 0;
       const exp  = parseInt(val(s.eId)) || 0;
       const diff = exp > 0 ? Math.abs(exp - sent) : 0;
-      msg += `\n\n${s.name} sent to ${sent} users on all WATIs.`;
+      msg += `\n\n*${s.name}* sent to ${sent} users on all WATIs.`;
       msg += `\nExpected: ${exp} Difference: ${diff}`;
       total += sent;
     });
@@ -487,12 +487,12 @@ function buildPaidMessage() {
     ];
     const rows = slots.filter(s => parseInt(val(s.sId)) > 0);
     if (!rows.length) return '— Reminder counts bharo —';
-    let msg = '*UPDATE* :✅', total = 0;
+    let msg = '*UPDATE: ✅*', total = 0;
     rows.forEach(s => {
       const sent = parseInt(val(s.sId)) || 0;
       const exp  = parseInt(val(s.eId)) || 0;
       const diff = exp > 0 ? Math.abs(exp - sent) : '';
-      msg += `\n\nPAID ${batch} BATCH *${s.name}* message sent to ${sent} users on ${wati}.`;
+      msg += `\n\n${batch} BATCH *${s.name}* message sent to ${sent} users on ${wati}.`;
       if (exp > 0) msg += `\nExpected: ${exp} Difference: ${diff !== '' ? diff : 0}`;
       total += sent;
     });
@@ -511,7 +511,7 @@ function buildPaidMessage() {
     ];
     const rows = slots.filter(s => parseInt(val(s.sId)) > 0);
     if (!rows.length) return '— Night counts bharo —';
-    let msg = '*UPDATE* :✅', total = 0;
+    let msg = '*UPDATE: ✅*', total = 0;
     rows.forEach(s => {
       const sent = parseInt(val(s.sId)) || 0;
       const exp  = parseInt(val(s.eId)) || 0;
@@ -535,7 +535,7 @@ function buildPaidMessage() {
     ];
     const rows = slots.filter(s => parseInt(val(s.sId)) > 0);
     if (!rows.length) return '— Night Hindi counts bharo —';
-    let msg = '*UPDATE* :✅', total = 0;
+    let msg = '*UPDATE: ✅*', total = 0;
     rows.forEach(s => {
       const sent = parseInt(val(s.sId)) || 0;
       const exp  = parseInt(val(s.eId)) || 0;
@@ -596,7 +596,7 @@ function updatePreview() {
     const wati     = val('watiSelFree');
     const yest     = val('yesterdayCount');
     const diff     = (sent && expected) ? Math.abs(parseInt(expected) - parseInt(sent)) : '';
-    msg = `*UPDATE:* ✅\nCID ${cid} ${batch} *${name}* sent to *${sent}* users on ${wati}.\nExpected count: *${expected}*\nDifference: *${diff}*\n\n${getPrevLabel()}: *${yest}*`;
+    msg = `*UPDATE: ✅*\n\nCID ${cid} ${batch} *${name}* sent to *${sent}* users on ${wati}.\nExpected count: *${expected}*\nDifference: *${diff}*\n\n${getPrevLabel()}: *${yest}*`;
   } else {
     msg = buildPaidMessage();
   }
@@ -905,7 +905,7 @@ async function copyAndSave() {
     const sheetEntries = entries.filter(e => !e.noSheet);
     const sheetOk = (skipSheet || !sheetEntries.length) ? true : await postToSheet(sheetEntries, today, time);
 
-    if (!sheetOk) return; // sheet failed — show error, don't reset
+    if (!sheetOk && tplNow2 !== 'extra_session') return; // sheet failed — show error, don't reset
 
     // Extra Session (SE) entries are Firestore-only — no separate sheet tab needed
 
@@ -943,6 +943,7 @@ async function postToSheet(entries, date, fallbackTime) {
 
     if (!payload.length) { showFeedback('⚠️ Sheet: payload empty (sent=0?)', 'error'); return false; }
 
+    console.log('[Sheet] URL:', url);
     console.log('[Sheet] payload:', JSON.stringify(payload));
 
     try {
@@ -1347,10 +1348,11 @@ async function fillFields(data) {
           { val: '08:15 PM', mins: 1215 },
         ];
         const bcTime = data.bcTime || lastBcTime;
+        let closest = null;
         if (bcTime) {
           const [hh, mm] = bcTime.split(':').map(Number);
           const bcMins = hh * 60 + mm;
-          const closest = waterSlots.reduce((a, b) =>
+          closest = waterSlots.reduce((a, b) =>
             Math.abs(a.mins - bcMins) < Math.abs(b.mins - bcMins) ? a : b
           );
           setVal('extraWaterTime', closest.val);
@@ -1358,8 +1360,8 @@ async function fillFields(data) {
         if (data.sentCount) { setVal('extraWaterSent', data.sentCount); filledSlots.add('extraWaterSent'); }
         saveData();
         showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
-        // Fetch from count sheet (WATER REMINDER row is now in main sheet)
-        const yestW = await fetchCountSheetYesterday(timeStr);
+        const waterMsgname = 'Water_Reminder_' + (closest ? closest.val : document.getElementById('extraWaterTime')?.value || '11:00 AM').replace(/[\s:]/g, '');
+        const yestW = await fetchYesterdayCount(waterMsgname, timeStr);
         if (yestW !== null) { setVal('extraWaterYest', String(yestW)); showFeedback('✅ Water Reminder slot fill hua!', 'success'); }
         else showFeedback('✅ Water Reminder fill hua! (Yesterday manually dalo)', 'info');
       } else if (sub === 'email') {
@@ -1383,8 +1385,7 @@ async function fillFields(data) {
         if (data.expectedCount) setVal('extraEmailExp', data.expectedCount);
         saveData();
         showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
-        // Fetch from count sheet (Email - Reminder Message row is now in main sheet)
-        const yestE = await fetchCountSheetYesterday(timeStr);
+        const yestE = await fetchYesterdayCount('Paid_YE_Email_Reminder', timeStr);
         if (yestE !== null) { setVal('extraEmailYest', String(yestE)); showFeedback('✅ Email Reminder slot fill hua!', 'success'); }
         else showFeedback('✅ Email Reminder fill hua! (Yesterday manually dalo)', 'info');
       } else {
