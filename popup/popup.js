@@ -304,7 +304,17 @@ function renderFreeRows() {
 
 function addFreeRow() {
   freeRowsLocked = true; // lock: Stats clicks update rows without resetting until Copy&Save/Reload
-  freeBroadcasts.push({ cid:'', type: getMsgTimeType(), batch:'1st batch', day:'normal', wati:'', sent:'', expected:'', yest:'' });
+  const last = freeBroadcasts[freeBroadcasts.length - 1];
+  // Night Present ↔ Night Absent: always add the pair together
+  if (last?.type === 'Night Present') {
+    freeBroadcasts.push({ cid: last.cid || '', type:'Night Absent', batch:'1st batch', day:'normal', wati: last.wati || '', sent:'', expected:'', yest:'' });
+  } else if (last?.type === 'Night Absent') {
+    freeBroadcasts.push({ cid: last.cid || '', type:'Night Present', batch:'1st batch', day:'normal', wati: last.wati || '', sent:'', expected:'', yest:'' });
+  } else {
+    // Same type as last row — user is adding another CID for the same broadcast
+    const type = last?.type || getMsgTimeType();
+    freeBroadcasts.push({ cid:'', type, batch: last?.batch || '1st batch', day: last?.day || 'normal', wati:'', sent:'', expected:'', yest:'' });
+  }
   renderFreeRows(); updatePreview(); saveData();
 }
 
