@@ -7,6 +7,7 @@ const FS_URL  = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databas
 let currentType = 'PAID';
 let lastScanData = null;
 let paidCamps = [{name:'', sent:'', expected:'', wati:'all WATIs'}];
+let freeBroadcasts = [{ cid:'', type:'Evening Message', batch:'1st batch', day:'normal', wati:'', sent:'', expected:'', yest:'' }];
 let lastBcTime  = null; // broadcast time extracted from admin panel card
 let lastSheetRows = ''; // row names updated in last postToSheet call
 let lastBcDate  = null; // broadcast date extracted from admin panel card ("YYYY-MM-DD")
@@ -15,7 +16,7 @@ let adminName   = '';  // set in Settings → stamped on every record
 const filledSlots = new Set();
 
 // ── FIELD LISTS ───────────────────────────────
-const FREE_FIELDS = ['campaignName','sentCount','expectedCount','yesterdayCount','challengeId','batch','watiSelFree'];
+const FREE_FIELDS = []; // free broadcasts stored as freeBroadcasts array, not individual fields
 const PAID_STATIC = ['paidTemplate','paidWati','simpleTimePrefix','simpleNote',
   'pauseSent','pauseExpected','unpauseSent','unpauseExpected',
   'renewX1','renewX2','renewX3','renewX','renewXp1','renewXp2','renewXp3',
@@ -50,7 +51,7 @@ function setType(type) {
   document.getElementById('freeFields').style.display = type === 'FREE' ? 'flex' : 'none';
   document.getElementById('paidFields').style.display = type === 'PAID' ? 'flex' : 'none';
   if (type === 'PAID') onTemplateChange();
-  else updatePreview();
+  else { renderFreeRows(); updatePreview(); }
   saveData();
 }
 
@@ -209,6 +210,95 @@ function removeCamp(idx) {
   if (prev) prev.dataset.userEdited = 'false';
   updatePreview();
   saveData();
+}
+
+// ── FREE BROADCAST ROWS ────────────────────────
+function getWatiFromCid(cid) {
+  const n = parseInt(cid) || 0;
+  if (n >= 4000) return 'wati 9';
+  if (n >= 2000) return 'wati 14';
+  return 'all free WATIs';
+}
+
+function getMsgTimeType() {
+  return new Date().getHours() < 14 ? 'Morning Message' : 'Evening Message';
+}
+
+function renderFreeRows() {
+  const container = document.getElementById('freeRows');
+  if (!container) return;
+  const inp = (val, idx, field, ph) =>
+    `<input type="number" style="width:100%;padding:5px 7px;border-radius:6px;border:1px solid var(--border,#e2e8f0);font-size:.82rem;background:var(--bg,#fff);color:var(--text,#1e293b)"
+      value="${val}" placeholder="${ph}"
+      oninput="freeBroadcasts[${idx}].${field}=this.value;updatePreview();saveData();">`;
+  const lbl = t => `<div style="font-size:.7rem;color:var(--muted,#64748b);margin-bottom:2px">${t}</div>`;
+  const colStyle = flex => `style="flex:${flex};min-width:0"`;
+  const selStyle = `style="width:100%;padding:5px 7px;border-radius:6px;border:1px solid var(--border,#e2e8f0);font-size:.82rem;background:var(--bg,#fff);color:var(--text,#1e293b)"`;
+
+  container.innerHTML = freeBroadcasts.map((fb, i) => {
+    const isAtt = fb.type === 'Attendance';
+    const autoWati = getWatiFromCid(fb.cid);
+    return `<div style="background:var(--surface2,#f1f5f9);border:1px solid var(--border,#e2e8f0);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end">
+        <div ${colStyle('0 0 72px')}>
+          ${lbl('CID')}
+          <input type="number" style="width:100%;padding:5px 7px;border-radius:6px;border:1px solid var(--border,#e2e8f0);font-size:.82rem;background:var(--bg,#fff);color:var(--text,#1e293b)"
+            value="${fb.cid}" placeholder="2008"
+            oninput="freeBroadcasts[${i}].cid=this.value;freeBroadcasts[${i}].wati=freeBroadcasts[${i}].wati||getWatiFromCid(this.value);renderFreeRows();updatePreview();saveData();">
+        </div>
+        <div ${colStyle('1 1 110px')}>
+          ${lbl('Type')}
+          <select ${selStyle} onchange="freeBroadcasts[${i}].type=this.value;renderFreeRows();updatePreview();saveData();">
+            <option value="Morning Message" ${fb.type==='Morning Message'?'selected':''}>🌅 Morning</option>
+            <option value="Evening Message" ${fb.type==='Evening Message'?'selected':''}>🌙 Evening</option>
+            <option value="Attendance" ${fb.type==='Attendance'?'selected':''}>📋 Attendance</option>
+          </select>
+        </div>
+        ${isAtt ? `
+        <div ${colStyle('0 0 90px')}>
+          ${lbl('Batch')}
+          <select ${selStyle} onchange="freeBroadcasts[${i}].batch=this.value;updatePreview();saveData();">
+            <option ${fb.batch==='1st batch'?'selected':''}>1st batch</option>
+            <option ${fb.batch==='2nd batch'?'selected':''}>2nd batch</option>
+            <option ${fb.batch==='3rd batch'?'selected':''}>3rd batch</option>
+          </select>
+        </div>
+        <div ${colStyle('0 0 82px')}>
+          ${lbl('Day')}
+          <select ${selStyle} onchange="freeBroadcasts[${i}].day=this.value;updatePreview();saveData();">
+            <option ${fb.day==='normal'?'selected':''}>normal</option>
+            <option ${fb.day==='Day 1'?'selected':''}>Day 1</option>
+            <option ${fb.day==='Day 3'?'selected':''}>Day 3</option>
+            <option ${fb.day==='Day 7'?'selected':''}>Day 7</option>
+            <option ${fb.day==='Day 14'?'selected':''}>Day 14</option>
+          </select>
+        </div>` : ''}
+        <div ${colStyle('1 1 100px')}>
+          ${lbl('WATI')}
+          <input type="text" style="width:100%;padding:5px 7px;border-radius:6px;border:1px solid var(--border,#e2e8f0);font-size:.82rem;background:var(--bg,#fff);color:var(--text,#1e293b)"
+            value="${fb.wati || autoWati}" placeholder="${autoWati}"
+            oninput="freeBroadcasts[${i}].wati=this.value;updatePreview();saveData();">
+        </div>
+        ${freeBroadcasts.length > 1 ? `<button onclick="removeFreeRow(${i})" style="align-self:flex-end;padding:4px 9px;border-radius:6px;border:1px solid #ef4444;background:transparent;color:#ef4444;cursor:pointer;font-size:.9rem;font-weight:700;flex-shrink:0">×</button>` : ''}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <div ${colStyle('1 1 70px')}>${lbl('Sent')}${inp(fb.sent,i,'sent','0')}</div>
+        <div ${colStyle('1 1 70px')}>${lbl('Expected')}${inp(fb.expected,i,'expected','0')}</div>
+        <div ${colStyle('0 0 78px')}>${lbl('Yesterday')}${inp(fb.yest,i,'yest','0')}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function addFreeRow() {
+  freeBroadcasts.push({ cid:'', type: getMsgTimeType(), batch:'1st batch', day:'normal', wati:'', sent:'', expected:'', yest:'' });
+  renderFreeRows(); updatePreview(); saveData();
+}
+
+function removeFreeRow(i) {
+  freeBroadcasts.splice(i, 1);
+  if (!freeBroadcasts.length) freeBroadcasts = [{ cid:'', type: getMsgTimeType(), batch:'1st batch', day:'normal', wati:'', sent:'', expected:'', yest:'' }];
+  renderFreeRows(); updatePreview(); saveData();
 }
 
 function updateTotal() {
@@ -588,15 +678,23 @@ function updatePreview() {
 
   let msg = '';
   if (currentType === 'FREE') {
-    const name     = val('campaignName');
-    const sent     = val('sentCount');
-    const expected = val('expectedCount');
-    const cid      = val('challengeId');
-    const batch    = val('batch');
-    const wati     = val('watiSelFree');
-    const yest     = val('yesterdayCount');
-    const diff     = (sent && expected) ? Math.abs(parseInt(expected) - parseInt(sent)) : '';
-    msg = `*UPDATE: ✅*\n\nCID ${cid} ${batch} *${name}* sent to *${sent}* users on ${wati}.\nExpected count: *${expected}*\nDifference: *${diff}*\n\n${getPrevLabel()}: *${yest}*`;
+    const rows = freeBroadcasts.map(fb => {
+      const cid  = fb.cid  || '?';
+      const sent = parseInt(fb.sent)     || 0;
+      const exp  = parseInt(fb.expected) || 0;
+      const diff = Math.abs(exp - sent);
+      const wati = fb.wati || getWatiFromCid(fb.cid) || 'all WATIs';
+      let line;
+      if (fb.type === 'Attendance') {
+        const dayPart = fb.day === 'normal' ? 'normal' : fb.day;
+        line = `CID ${cid} ${fb.batch} ${dayPart} Attendance sent to ${sent} users on ${wati}.\nExpected count: ${exp}\nDifference:  ${diff}`;
+      } else {
+        line = `CID ${cid} ${fb.type} sent to ${sent} users on ${wati}.\nExpected count: ${exp}\nDifference:  ${diff}`;
+      }
+      if (parseInt(fb.yest) > 0) line += `\nYesterday's Count : ${fb.yest}`;
+      return line;
+    }).join('\n\n');
+    msg = `*UPDATE: ✅*\n\n${rows}`;
   } else {
     msg = buildPaidMessage();
   }
@@ -643,11 +741,21 @@ async function copyAndSave() {
     const entries = [];
 
     if (currentType === 'FREE') {
-      const msgname = val('campaignName');
-      if (!msgname) { showFeedback('Campaign Name bharo', 'error'); return; }
-      const sent     = parseInt(val('sentCount'))     || 0;
-      const expected = parseInt(val('expectedCount')) || 0;
-      entries.push({ msgname, sent, expected, diff: expected - sent });
+      const filled = freeBroadcasts.filter(fb => fb.cid || fb.sent);
+      if (!filled.length) { showFeedback('CID ya Sent count bharo', 'error'); return; }
+      filled.forEach(fb => {
+        const sent = parseInt(fb.sent) || 0;
+        const exp  = parseInt(fb.expected) || 0;
+        const wati = fb.wati || getWatiFromCid(fb.cid);
+        let msgname;
+        if (fb.type === 'Attendance') {
+          msgname = `FREE_CID_${fb.cid}_${fb.batch.replace(/\s+/g,'_')}_${fb.day.replace(/\s+/g,'_')}_Attendance`;
+        } else {
+          msgname = `FREE_CID_${fb.cid}_${fb.type.replace(/\s+/g,'_')}`;
+        }
+        entries.push({ msgname, sent, expected: exp, diff: exp - sent,
+          _freeType: 'free', _cid: fb.cid, _wati: wati, _msgType: fb.type });
+      });
     } else {
       const tpl = document.getElementById('paidTemplate')?.value || 'standard';
 
@@ -1127,18 +1235,34 @@ async function fillFields(data) {
       : new Date().toTimeString().slice(0, 5));
 
   if (currentType === 'FREE') {
-    if (data.campaignName)  setVal('campaignName',  data.campaignName);
-    if (data.sentCount)     setVal('sentCount',     data.sentCount);
-    if (data.expectedCount) setVal('expectedCount', data.expectedCount);
-    if (data.cid)           setVal('challengeId',   data.cid);
-    if (data.wati)          setVal('watiSelFree',   data.wati);
-    if (data.yesterdayCount) {
-      setVal('yesterdayCount', data.yesterdayCount);
-    } else if (data.campaignName) {
+    const cid  = data.cid || '';
+    const wati = data.wati || (cid ? getWatiFromCid(cid) : '');
+    const timeType = data.bcTime
+      ? (parseInt(data.bcTime.split(':')[0]) < 14 ? 'Morning Message' : 'Evening Message')
+      : getMsgTimeType();
+
+    // Find existing row for this CID, or use first empty row, or add new
+    let rowIdx = freeBroadcasts.findIndex(fb => fb.cid === cid && cid);
+    if (rowIdx < 0) rowIdx = freeBroadcasts.findIndex(fb => !fb.cid && !fb.sent);
+    if (rowIdx < 0) { freeBroadcasts.push({ cid:'', type: timeType, batch:'1st batch', day:'normal', wati:'', sent:'', expected:'', yest:'' }); rowIdx = freeBroadcasts.length - 1; }
+
+    const fb = freeBroadcasts[rowIdx];
+    if (cid)               fb.cid      = cid;
+    if (wati)              fb.wati     = wati;
+    fb.type = timeType;
+    if (data.sentCount)    fb.sent     = data.sentCount;
+    if (data.expectedCount)fb.expected = data.expectedCount;
+    renderFreeRows(); updatePreview(); saveData();
+
+    if (data.sentCount && cid) {
       showFeedback('⏳ Yesterday count fetch ho raha hai...', 'info');
-      const yest = await fetchYesterdayCount(data.campaignName, timeStr);
-      if (yest !== null) { setVal('yesterdayCount', String(yest)); showFeedback('✅ Yesterday count aaya!', 'success'); }
-      else showFeedback('ℹ️ Yesterday nahi mila — manually dalo', 'info');
+      const msgname = `FREE_CID_${cid}_${timeType.replace(/\s+/g,'_')}`;
+      const yestVal = await fetchYesterdayCount(msgname, timeStr);
+      if (yestVal !== null) {
+        freeBroadcasts[rowIdx].yest = String(yestVal);
+        renderFreeRows(); updatePreview(); saveData();
+        showFeedback('✅ Free broadcast fill hua!', 'success');
+      } else showFeedback('✅ Free fill hua! (Yesterday manually dalo)', 'info');
     }
   } else {
     // Auto-detect template from card hint + campaign name + time
@@ -1763,6 +1887,7 @@ function saveData() {
     if (el) data[f] = el.value;
   });
   data.paidCamps = paidCamps;
+  data.freeBroadcasts = freeBroadcasts;
   if (lastBcDate) data.lastBcDate = lastBcDate;
   if (lastBcTime) data.lastBcTime = lastBcTime;
   data.savedDate    = new Date().toISOString().slice(0, 10);
@@ -1792,6 +1917,8 @@ function loadSavedData() {
         if (d[f] !== undefined) { const el = document.getElementById(f); if (el) el.value = d[f]; }
       });
       if (d.paidCamps && d.paidCamps.length) paidCamps = d.paidCamps;
+      if (d.freeBroadcasts && d.freeBroadcasts.length) freeBroadcasts = d.freeBroadcasts;
+      renderFreeRows();
       if (d.lastBcDate) lastBcDate = d.lastBcDate;
       if (d.lastBcTime) lastBcTime = d.lastBcTime;
 
@@ -2052,6 +2179,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Reset all template fields for every template type
     ['pause','renewal_minus','renewal_plus','attendance','reminder','night','night_hindi','extra_session'].forEach(t => clearTemplateFields(t));
     paidCamps = [{ name: '', sent: '', expected: '', wati: 'all WATIs' }];
+    freeBroadcasts = [{ cid:'', type: getMsgTimeType(), batch:'1st batch', day:'normal', wati:'', sent:'', expected:'', yest:'' }];
+    renderFreeRows();
     // Reset dropdowns to defaults
     const tplEl   = document.getElementById('paidTemplate');
     const watiEl  = document.getElementById('paidWati');

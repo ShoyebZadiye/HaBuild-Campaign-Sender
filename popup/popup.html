@@ -38,42 +38,8 @@
 
   <!-- ─── FREE FIELDS ─── -->
   <div id="freeFields" style="display:none;flex-direction:column;gap:10px">
-    <div class="row2">
-      <div class="field">
-        <label>Challenge ID</label>
-        <input type="text" id="challengeId" placeholder="e.g. 2006">
-      </div>
-      <div class="field">
-        <label>Batch</label>
-        <select id="batch">
-          <option value="1st Batch">1st Batch</option>
-          <option value="2nd Batch">2nd Batch</option>
-          <option value="3rd Batch">3rd Batch</option>
-        </select>
-      </div>
-    </div>
-    <div class="field">
-      <label>WATI Selection</label>
-      <input type="text" id="watiSelFree" placeholder="e.g. wati 14">
-    </div>
-    <div class="field">
-      <label>Campaign Name</label>
-      <input type="text" id="campaignName" placeholder="e.g. Day 1 Milestone">
-    </div>
-    <div class="row2">
-      <div class="field">
-        <label>Sent Count</label>
-        <input type="number" id="sentCount" placeholder="0">
-      </div>
-      <div class="field">
-        <label>Expected Count</label>
-        <input type="number" id="expectedCount" placeholder="0">
-      </div>
-    </div>
-    <div class="field">
-      <label>Yesterday's Count</label>
-      <input type="number" id="yesterdayCount" placeholder="0">
-    </div>
+    <div id="freeRows" style="display:flex;flex-direction:column;gap:8px"></div>
+    <button onclick="addFreeRow()" style="align-self:flex-start;margin-top:2px;font-size:.78rem;padding:5px 14px;border-radius:6px;background:#6366f1;color:#fff;border:none;cursor:pointer;font-weight:600">+ Add Broadcast</button>
   </div>
 
   <!-- ─── PAID FIELDS ─── -->
