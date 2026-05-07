@@ -95,6 +95,24 @@ window._habuildClickHandler = function(event) {
     else if (hintStr.includes('payment'))                               templateHint = 'payment';
     else if (hintStr.includes('reminder'))                              templateHint = 'reminder';
 
+    // Time-based fallback: if card text gave no hint, use broadcast time from schedule
+    // Mon-Sat: 07-09 = morning attendance, 14:00 = quiz, 17:30-19 = evening attendance,
+    //          20:50 = payment, 21:00 = night present/absent
+    if (!templateHint) {
+      const timeMatchFb = cardText.match(/Time:\s*(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+      if (timeMatchFb) {
+        let fbH = parseInt(timeMatchFb[1]), fbM = parseInt(timeMatchFb[2]);
+        const fbPm = timeMatchFb[3].toUpperCase() === 'PM';
+        if (fbPm && fbH !== 12) fbH += 12;
+        if (!fbPm && fbH === 12) fbH = 0;
+        if (fbH === 21 && fbM === 0)               templateHint = 'night';
+        else if (fbH === 20 && fbM === 50)          templateHint = 'payment';
+        else if (fbH === 14 && fbM === 0)           templateHint = 'quiz';
+        else if ((fbH >= 7 && fbH <= 9) || (fbH === 17 && fbM >= 30) || fbH === 18 || fbH === 19)
+          templateHint = 'attendance';
+      }
+    }
+
     // Extract day/batch from card text for Attendance broadcasts
     // (campaign name like "Challenge_101" has no day/batch info)
     const attDayMatch   = cardText.match(/\bday\s*(\d+)\b/i);

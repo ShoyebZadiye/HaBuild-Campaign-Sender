@@ -1307,9 +1307,23 @@ async function fillFields(data) {
     else if (data.templateHint === 'payment')                       timeType = 'Payment';
     else if (data.templateHint === 'night' || data.templateHint === 'night_hindi')
       timeType = data.broadcastType === 'absent' ? 'Night Absent' : 'Night Present';
-    else timeType = data.bcTime
-      ? (parseInt(data.bcTime.split(':')[0]) < 14 ? 'Morning Message' : 'Evening Message')
-      : getMsgTimeType();
+    else {
+      // Time-based fallback using FREE schedule (Mon-Sat):
+      // 07-09 = morning attendance, 14:00 = quiz, 17:30-19 = evening attendance,
+      // 20:50 = payment, 21:00 = night
+      const byTime = (() => {
+        const t = data.bcTime; if (!t) return null;
+        const [hh, mm] = t.split(':').map(Number);
+        if (hh === 21 && mm === 0)  return data.broadcastType === 'absent' ? 'Night Absent' : 'Night Present';
+        if (hh === 20 && mm === 50) return 'Payment';
+        if (hh === 14 && mm === 0)  return 'Quiz';
+        if ((hh >= 7 && hh <= 9) || (hh === 17 && mm >= 30) || hh === 18 || hh === 19) return 'Attendance';
+        return null;
+      })();
+      timeType = byTime || (data.bcTime
+        ? (parseInt(data.bcTime.split(':')[0]) < 14 ? 'Morning Message' : 'Evening Message')
+        : getMsgTimeType());
+    }
 
     // Auto-detect day from attDayHint (card text), fallback to campaign name
     let autoDay = 'normal';
