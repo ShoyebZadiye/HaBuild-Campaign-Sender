@@ -14,6 +14,8 @@ let lastBcDate  = null; // broadcast date extracted from admin panel card ("YYYY
 let adminName   = '';  // set in Settings → stamped on every record
 // Tracks which slots have been filled — cleared only by Reload or Copy&Save
 const filledSlots = new Set();
+// When user manually adds rows via "+ Add Broadcast", lock rows until Copy&Save or Reload
+let freeRowsLocked = false;
 
 // ── FIELD LISTS ───────────────────────────────
 const FREE_FIELDS = []; // free broadcasts stored as freeBroadcasts array, not individual fields
@@ -301,13 +303,17 @@ function renderFreeRows() {
 }
 
 function addFreeRow() {
+  freeRowsLocked = true; // lock: Stats clicks update rows without resetting until Copy&Save/Reload
   freeBroadcasts.push({ cid:'', type: getMsgTimeType(), batch:'1st batch', day:'normal', wati:'', sent:'', expected:'', yest:'' });
   renderFreeRows(); updatePreview(); saveData();
 }
 
 function removeFreeRow(i) {
   freeBroadcasts.splice(i, 1);
-  if (!freeBroadcasts.length) freeBroadcasts = [{ cid:'', type: getMsgTimeType(), batch:'1st batch', day:'normal', wati:'', sent:'', expected:'', yest:'' }];
+  if (!freeBroadcasts.length) {
+    freeBroadcasts = [{ cid:'', type: getMsgTimeType(), batch:'1st batch', day:'normal', wati:'', sent:'', expected:'', yest:'' }];
+    freeRowsLocked = false; // back to single row, unlock
+  }
   renderFreeRows(); updatePreview(); saveData();
 }
 
@@ -1340,9 +1346,11 @@ async function fillFields(data) {
     const autoBatch = (isAtt && data.attBatchHint) ? data.attBatchHint : '1st batch';
 
     // ── RESET: every Stats click = fresh start (exactly like PAID) ──────────
-    // Only exception: Attendance same CID keeps its 4 day slots so Normal/Day1/Day3/Day7
-    // can be filled one-by-one without losing previously filled days.
-    if (isAtt && cid && freeBroadcasts.some(fb => fb.type === 'Attendance' && fb.cid === cid)) {
+    // Skip reset if user manually added rows (freeRowsLocked) — unlock only on Copy&Save/Reload.
+    // Always keep Attendance rows for same CID so Normal/Day1/Day3/Day7 fill one-by-one.
+    if (freeRowsLocked) {
+      // Locked: just update/add the specific row, don't clear anything
+    } else if (isAtt && cid && freeBroadcasts.some(fb => fb.type === 'Attendance' && fb.cid === cid)) {
       freeBroadcasts = freeBroadcasts.filter(fb => fb.type === 'Attendance' && fb.cid === cid);
     } else {
       freeBroadcasts = [];
@@ -2002,6 +2010,7 @@ function saveData() {
   });
   data.paidCamps = paidCamps;
   data.freeBroadcasts = freeBroadcasts;
+  data.freeRowsLocked = freeRowsLocked;
   if (lastBcDate) data.lastBcDate = lastBcDate;
   if (lastBcTime) data.lastBcTime = lastBcTime;
   data.savedDate    = new Date().toISOString().slice(0, 10);
@@ -2035,6 +2044,7 @@ function loadSavedData() {
       });
       if (d.paidCamps && d.paidCamps.length) paidCamps = d.paidCamps;
       if (d.freeBroadcasts && d.freeBroadcasts.length) freeBroadcasts = d.freeBroadcasts;
+      if (d.freeRowsLocked) freeRowsLocked = true;
       renderFreeRows();
       if (d.lastBcDate) lastBcDate = d.lastBcDate;
       if (d.lastBcTime) lastBcTime = d.lastBcTime;
@@ -2296,6 +2306,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ['pause','renewal_minus','renewal_plus','attendance','reminder','night','night_hindi','extra_session'].forEach(t => clearTemplateFields(t));
     paidCamps = [{ name: '', sent: '', expected: '', wati: 'all WATIs' }];
     freeBroadcasts = [{ cid:'', type: getMsgTimeType(), batch:'1st batch', day:'normal', wati:'', sent:'', expected:'', yest:'' }];
+    freeRowsLocked = false;
     renderFreeRows();
     // Reset dropdowns to defaults
     const tplEl   = document.getElementById('paidTemplate');
